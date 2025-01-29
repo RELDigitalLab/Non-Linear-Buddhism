@@ -1,1 +1,1 @@
-# Non-Linear-World-Religions
+# Non-Linear-Buddhism
