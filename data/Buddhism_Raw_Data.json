@@ -86,7 +86,7 @@
    "Area": "India",
    "Branch": "Navayana",
    "Subbranch": "",
-   "Time (Beginning)": 1200,
+   "Time (Beginning)": 1201,
    "Time (End)": 1299
  },
  {
@@ -149,7 +149,7 @@
    "Area": "India, China, Japan, Tibet",
    "Branch": "Mahayana, Vajrayana",
    "Subbranch": "",
-   "Time (Beginning)": 400,
+   "Time (Beginning)": 401,
    "Time (End)": 699
  },
  {
@@ -176,7 +176,7 @@
    "Area": "India, Sri Lanka/Ceylon",
    "Branch": "Theravada",
    "Subbranch": "",
-   "Time (Beginning)": -300,
+   "Time (Beginning)": -299,
    "Time (End)": -201
  },
  {
@@ -194,7 +194,7 @@
    "Area": "India, Sri Lanka/Ceylon, China, Japan, Tibet",
    "Branch": "Theravada, Mahayana, Vajrayana, Navayana",
    "Subbranch": "",
-   "Time (Beginning)": -600,
+   "Time (Beginning)": -599,
    "Time (End)": -501
  },
  {
