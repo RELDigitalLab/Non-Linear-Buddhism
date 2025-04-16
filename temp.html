@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Non-Linear Buddhism</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/d3-dag@0.8.2"></script>
+</head>
+<body>
+    <h1>Non-Linear World Religions</h1>
+    <p>This is a paragraph</p>
+    <label class="switch" id="chronology_toggle">
+        <input type="checkbox" checked>
+        <span class="slider round">Chronology</span>
+    </label>
+    <br>
+    <label class="switch" id="geography_toggle">
+        <input type="checkbox">
+        <span class="slider round">Geography</span>
+    </label>
+    <br>
+    <label class="switch" id="branch_toggle">
+        <input type="checkbox">
+        <span class="slider round">Branch</span>
+    </label>
+
+    <svg></svg>
+    <script>
+        // add event listener for toggle switches
+        const chronologyToggle = document.getElementById("chronology_toggle");
+        const geographyToggle = document.getElementById("geography_toggle");
+        const branchToggle = document.getElementById("branch_toggle");
+
+        // create a variable that tracks the current state of the toggles
+        let currentState = {
+            chronology: true,
+            geography: false,
+            branch: false
+        };
+        // add event listeners to the toggles
+        chronologyToggle.addEventListener("click", function() {
+            currentState.chronology = this.querySelector("input").checked;
+            // console.log("Current state:", currentState);
+        });
+        geographyToggle.addEventListener("click", function() {
+            currentState.geography = this.querySelector("input").checked;
+            // console.log("Current state:", currentState);
+        });
+        branchToggle.addEventListener("click", function() {
+            currentState.branch = this.querySelector("input").checked;
+            // console.log("Current state:", currentState);
+        });
+        // console.log("Current state: ", currentState);
+
+        (async () => {
+            // Fetch data from external JSON file
+            const resp = await fetch(
+                "https://raw.githubusercontent.com/RELDigitalLab/Non-Linear-Buddhism/main/data/Buddhism_Raw_Data.json"
+            );
+            const rawData = await resp.json();
+
+            // extract this
+            const toggles = {
+                chronology: chronologyToggle.querySelector("input"),
+                geography: geographyToggle.querySelector("input"),
+                branch: branchToggle.querySelector("input")
+            };
+            console.log(toggles);
+            // end extract this
+
+            // keep in async function
+            function processEvents(events) {
+                let sorted_events = events.sort((a, b) => a["Time (Beginning)"] - b["Time (Beginning)"]);
+                sorted_events.forEach((event, i) => {
+                    event.idNumber = i + 1;
+                    event.parentIds = [];
+                });
+                //IF we were to do toggling, we would input here
+                return sorted_events.map(event => {
+                    // repeat variables for categories to be split
+                    
+                    // extract these into parsing function
+                    let event_geos = event["Area"].split(",");
+                    let parent_matches = [];
+                    let event_branches = event["Branch"].split(",");
+                    // console.log(event);
+                    // console.log(currentState);
+                    // end extract these
+
+            // return async processed events
+
+                    // extract for parsing function
+                    // logic for chronology
+                    if (event.idNumber + 1  <= sorted_events.length) {
+                        let chronology_event = sorted_events[event.idNumber];
+                        parent_matches.push(chronology_event.idNumber);
+                    } else {}
+
+                    // logic for geographies--repeat for other kinds of connections
+                    // event_geos.forEach(geo => {
+                    //     let matching_events = sorted_events.filter(e => e["Area"].includes(geo) && e["Time (Beginning)"] > event["Time (Beginning)"]);
+                    //     if (matching_events.length > 0) {
+                    //         // console.log(event["Title"], matching_events[0]["Title"], matching_events[0].idNumber);
+                    //         // parent_matches.push(matching_events[0].idNumber);
+                    //         if (parent_matches.includes(matching_events[0].idNumber)) {
+                    //             // console.log("Duplicate parent found for " + event["Title"] + " and " + matching_events[0]["Title"]);
+                    //         }
+                    //         else {
+                    //             parent_matches.push(matching_events[0].idNumber);
+                    //         }
+                    //     }
+                    // });
+                    // end geographies logic
+
+                    // logic for branches
+                    // event_branches.forEach(branch => {
+                    //     let matching_events = sorted_events.filter(e => e["Branch"].includes(branch) && e["Time (Beginning)"] > event["Time (Beginning)"]);
+                    //     if (matching_events.length > 0) {
+                    //         // console.log(event["Title"], matching_events[0]["Title"], matching_events[0].idNumber);
+                    //         // parent_matches.push(matching_events[0].idNumber);
+                    //         if (parent_matches.includes(matching_events[0].idNumber)) {
+                    //             // console.log("Duplicate parent found for " + event["Title"] + " and " + matching_events[0]["Title"]);
+                    //         }
+                    //         else {
+                    //             parent_matches.push(matching_events[0].idNumber);
+                    //         }
+                    //     }
+                    // })
+                    // end branches logic
+
+                    event.parentIds = parent_matches;
+                    // console.log(event["Title"] + " event id: " + event["idNumber"], event.parentIds);
+                    return event;
+                    // end extracting parsing function
+                
+            // figure out ending scoping 
+                });
+            }
+            
+            // extract for dag visualization function
+            const data = processEvents(rawData).map(event => ({
+                id: event.idNumber.toString(),
+                title: event["Title"],
+                content: event["Content"] || "",
+                area: event["Area"] || "Unknown",
+                branch: event["Branch"] || [],
+                subbranch: event["Subbranch"] || "",
+                timeStart: event["Time (Beginning)"],
+                timeEnd: event["Time (End)"] || event["Time (Beginning)"],
+                parentIds: event["parentIds"].map(String)
+            }));
+
+            const dag = d3.dagStratify()(data);
+            const nodeRadius = 80;
+            const layout = d3.sugiyama().decross(d3.decrossTwoLayer()).nodeSize(node => [(node ? 3.5 : 0.25) * nodeRadius, nodeRadius]);
+            // removed .decross(d3.decrossOpt())
+            const { width, height } = layout(dag);
+
+            const svgSelection = d3.select("svg");
+            svgSelection.attr("viewBox", [0, 0, width, height].join(" "));
+            const defs = svgSelection.append("defs");
+
+            const steps = dag.size();
+            const interp = d3.interpolateRainbow;
+            const colorMap = new Map();
+            dag.idescendants().forEach((node, i) => colorMap.set(node.data.id, interp(i / steps)));
+
+            const line = d3.line().curve(d3.curveCatmullRom).x(d => d.x).y(d => d.y);
+            
+            svgSelection.append("g").selectAll("path")
+                .data(dag.links())
+                .enter().append("path")
+                .attr("d", ({ points }) => line(points))
+                .attr("fill", "none")
+                .attr("stroke-width", 3)
+                .attr("stroke", ({ source, target }) => {
+                    const gradId = `grad-${source.data.id}-${target.data.id}`;
+                    const grad = defs.append("linearGradient").attr("id", gradId).attr("gradientUnits", "userSpaceOnUse")
+                        .attr("x1", source.x).attr("x2", target.x).attr("y1", source.y).attr("y2", target.y);
+                    grad.append("stop").attr("offset", "0%").attr("stop-color", colorMap.get(source.data.id));
+                    grad.append("stop").attr("offset", "100%").attr("stop-color", colorMap.get(target.data.id));
+                    return `url(#${gradId})`;
+                });
+
+            const nodes = svgSelection.append("g").selectAll("g")
+                .data(dag.descendants())
+                .enter().append("g")
+                .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+            nodes.append("circle").attr("r", nodeRadius*0.5).attr("fill", d => colorMap.get(d.data.id));
+            nodes.append("text").text(d => d.data.title).attr("font-weight", "bold").attr("text-anchor", "middle")
+                .attr("alignment-baseline", "middle").attr("fill", "white");
+
+            d3.select("svg").selectAll("g").on("click", function(event, d) {
+                console.log(d.data.id);
+            });
+            // end extract for dag visualization function
+
+        })();
+
+    </script>
+</body>
+</html>
