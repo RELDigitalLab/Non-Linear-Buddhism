@@ -1,0 +1,12 @@
+Fall 2024, I (Parker Stewart) was in the Randall Research Scholars Program and wanted to expand the program into non-STEM areas, such as Religious Studies, so here I am.
+
+
+That was the fun back story. Here are the technical aspects.
+
+Project began in WORD, which Dr. Steven Ramey has access to, so I will let him put it in here, but it was "Choose Your Own Adventure" style, which had plenty of information, but not much visualization.
+MY project began in SCALAR (which I unfortunately do not have access to at the time, as SCALAR is down), which included the same information and some minor visualization, but not quite what we wanted.
+Next, I created an HTML Image Map by hand which had the geographic areas across the top and events along the negative Y-axis.
+  The Image Map had each Geographic Area color coded and it looked amazing, but it was not expandable, so we had to move on. That's how we got here.
+
+
+For the future, we want to allow the nodes to be clickable to show the page of information, and we want to connect the code to an external database in order to edit and expand.
