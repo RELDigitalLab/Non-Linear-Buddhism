@@ -57,7 +57,7 @@
         // Function to fetch and sort data
         async function fetchData() {
             const resp = await fetch(
-                "https://raw.githubusercontent.com/RELDigitalLab/Non-Linear-Buddhism/main/data/non-linear data 2.0.json"
+                "https://raw.githubusercontent.com/RELDigitalLab/Non-Linear-Buddhism/main/data/non-linear data 2.2.json"
             );
             const rawData = await resp.json();
             const sortedData = rawData.sort((a, b) => a["Time (Beginning)"] - b["Time (Beginning)"]);
