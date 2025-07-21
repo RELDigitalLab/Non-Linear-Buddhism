@@ -108,6 +108,7 @@
         function parseData(events, currentState) {
             return events.map(event => {
                 let parentMatches = [];
+                const connectionReasons = new Map(); // Track why each connection was made
                 
                 // Parse and trim values for each category
                 const eventGeos = event["Area"] ? event["Area"].split(",").map(geo => geo.trim()) : [];
@@ -116,12 +117,12 @@
 
                 // Process each active category
                 const categoryMappings = [
-                    { active: currentState.religion, values: eventReligions, field: "Religion" },
-                    { active: currentState.geography, values: eventGeos, field: "Area" },
-                    { active: currentState.branch, values: eventBranches, field: "Branch" }
+                    { active: currentState.religion, values: eventReligions, field: "Religion", category: "religion" },
+                    { active: currentState.geography, values: eventGeos, field: "Area", category: "geography" },
+                    { active: currentState.branch, values: eventBranches, field: "Branch", category: "branch" }
                 ];
 
-                categoryMappings.forEach(({ active, values, field }) => {
+                categoryMappings.forEach(({ active, values, field, category }) => {
                     if (active) {
                         values.forEach(value => {
                             const matches = findMatchingEvents(events, event, value, field);
@@ -129,12 +130,18 @@
                                 if (!parentMatches.includes(match)) {
                                     parentMatches.push(match);
                                 }
+                                // Track the specific value and category that created this connection
+                                if (!connectionReasons.has(match)) {
+                                    connectionReasons.set(match, []);
+                                }
+                                connectionReasons.get(match).push({ category, value });
                             });
                         });
                     }
                 });
 
                 event.parentIds = parentMatches;
+                event.connectionReasons = connectionReasons; // Store connection reasons
                 return event;
             });
         }
@@ -345,7 +352,8 @@
                 subbranch: event["Subbranch"] || "",
                 timeStart: event["Time (Beginning)"],
                 timeEnd: event["Time (End)"] || event["Time (Beginning)"],
-                parentIds: event["parentIds"].map(String)
+                parentIds: event["parentIds"].map(String),
+                connectionReasons: event["connectionReasons"] || new Map() // Include connection reasons
             }));
     
             const dag = d3.graphStratify()
@@ -421,22 +429,41 @@
     
             const defs = svgSelection.append("defs");
     
-            // Create a simple color map for single-color nodes and edge gradients
+            // Create a color map for single-color nodes and edge gradients
             const nodeColorMap = new Map();
+            const nodeMultiColorMap = new Map(); // Store all colors for multi-color nodes
             nodeColorData.forEach((colors, nodeId) => {
                 if (colors.length === 1) {
                     nodeColorMap.set(nodeId, valueColorMap.get(colors[0]));
                 } else {
-                    // For multi-color nodes, use the first color for edge gradients
-                    nodeColorMap.set(nodeId, valueColorMap.get(colors[0]));
+                    // For multi-color nodes, store all colors and use the first for simple cases
+                    const actualColors = colors.map(colorKey => valueColorMap.get(colorKey));
+                    nodeColorMap.set(nodeId, actualColors[0]); // Fallback to first color
+                    nodeMultiColorMap.set(nodeId, actualColors); // Store all colors
                 }
             });
     
             const line = d3.line().curve(d3.curveCatmullRom).x(d => d.x).y(d => d.y);
     
+            // Function to get connection colors based on why nodes are connected
+            function getConnectionColors(sourceData, targetData, valueColorMap) {
+                const connectionReasons = targetData.connectionReasons.get(parseInt(sourceData.id));
+                if (!connectionReasons) return [fallbackEdgeColor]; // Fallback if no connection reason found
+                
+                // Get the colors for each connection reason
+                const connectionColors = connectionReasons.map(reason => {
+                    const key = `${reason.category}:${reason.value}`;
+                    return valueColorMap.get(key) || fallbackEdgeColor;
+                });
+                
+                // Remove duplicates
+                return [...new Set(connectionColors)];
+            }
+    
             // Get edge styling values from CSS
-            const edgeStrokeWidth = getCSSValue('--edge-stroke-width', 'int', 3);
+            const edgeStrokeWidth = getCSSValue(multipleToggleMode ? '--edge-stroke-width-multi' : '--edge-stroke-width', 'int', 3);
             const fallbackEdgeColor = getCSSValue('--fallback-edge-color', 'string', '#999');
+            const edgeOpacity = getCSSValue(multipleToggleMode ? '--edge-opacity-multi' : '--edge-opacity', 'float', 0.8);
     
             // Render edges with error handling
             try {
@@ -466,13 +493,34 @@
                     })
                     .attr("fill", "none")
                     .attr("stroke-width", edgeStrokeWidth)
+                    .attr("stroke-opacity", edgeOpacity)
                     .attr("stroke", ({ source, target }) => {
                         try {
                             const gradId = `grad-${source.data.id}-${target.data.id}`;
                             const grad = defs.append("linearGradient").attr("id", gradId).attr("gradientUnits", "userSpaceOnUse")
                                 .attr("x1", source.x).attr("x2", target.x).attr("y1", source.y).attr("y2", target.y);
-                            grad.append("stop").attr("offset", "0%").attr("stop-color", nodeColorMap.get(source.data.id) || fallbackEdgeColor);
-                            grad.append("stop").attr("offset", "100%").attr("stop-color", nodeColorMap.get(target.data.id) || fallbackEdgeColor);
+                            
+                            // Get the colors that represent the actual connection between these nodes
+                            const connectionColors = getConnectionColors(source.data, target.data, valueColorMap);
+                            
+                            if (connectionColors.length === 1) {
+                                // Single connection reason - use solid color
+                                grad.append("stop").attr("offset", "0%").attr("stop-color", connectionColors[0]);
+                                grad.append("stop").attr("offset", "100%").attr("stop-color", connectionColors[0]);
+                            } else if (connectionColors.length > 1) {
+                                // Multiple connection reasons - create gradient with all connection colors
+                                connectionColors.forEach((color, i) => {
+                                    const offset = (i / (connectionColors.length - 1)) * 100;
+                                    grad.append("stop")
+                                        .attr("offset", `${offset}%`)
+                                        .attr("stop-color", color);
+                                });
+                            } else {
+                                // Fallback - no connection colors found
+                                grad.append("stop").attr("offset", "0%").attr("stop-color", fallbackEdgeColor);
+                                grad.append("stop").attr("offset", "100%").attr("stop-color", fallbackEdgeColor);
+                            }
+                            
                             return `url(#${gradId})`;
                         } catch (e) {
                             debugError('Error creating edge gradient:', e);

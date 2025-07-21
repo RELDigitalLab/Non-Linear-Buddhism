@@ -44,7 +44,10 @@ body {
     
     /* Edge and stroke parameters */
     --edge-stroke-width: 3;
+    --edge-stroke-width-multi: 4; /* Slightly thicker for multi-toggle mode */
     --fallback-edge-color: #999;
+    --edge-opacity: 0.8;
+    --edge-opacity-multi: 0.9; /* Higher opacity for multi-color gradients */
     
     /* Legend styling */
     --legend-background: rgba(0, 0, 0, 0.8);
