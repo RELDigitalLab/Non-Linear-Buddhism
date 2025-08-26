@@ -1,0 +1,293 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Lora', serif;
+    background-color: black;
+    color: white;
+    margin: 0;
+    padding: 0;
+}
+
+/* Root variables for dynamic sizing constraints */
+:root {
+    --base-node-radius: 150px;
+    --max-node-percentage: 8%; /* 8% of container width */
+    --max-node-absolute: 80px;
+    --min-node-radius: 25px;
+    --base-font-size: 55px;
+    --min-font-size: 12px;
+    
+    /* Color family hue ranges for multiple toggle mode */
+    --religion-hue-start: 0;    /* Red to Yellow range */
+    --religion-hue-end: 60;
+    --geography-hue-start: 120; /* Green to Cyan range */
+    --geography-hue-end: 180;
+    --branch-hue-start: 240;    /* Blue to Magenta range */
+    --branch-hue-end: 300;
+    --fallback-hue-start: 60;   /* Yellow to Green range */
+    --fallback-hue-end: 120;
+    
+    /* Color variation parameters */
+    --base-saturation: 0.8;
+    --saturation-variation: 0.2;
+    --base-lightness: 0.5;
+    --lightness-variation: 0.15;
+    
+    /* Layout and spacing parameters */
+    --container-width-divisor: 2.5;
+    --node-spacing-y: 200px;
+    --layout-spacing-adjustment-x: 0.9;
+    --layout-spacing-adjustment-y: 0.95;
+    --max-scale-limit: 1.5;
+    
+    /* Edge and stroke parameters */
+    --edge-stroke-width: 3;
+    --edge-stroke-width-multi: 4; /* Slightly thicker for multi-toggle mode */
+    --fallback-edge-color: #999;
+    --edge-opacity: 0.8;
+    --edge-opacity-multi: 0.9; /* Higher opacity for multi-color gradients */
+    
+    /* Legend styling */
+    --legend-background: rgba(0, 0, 0, 0.8);
+    --legend-border-color: #444;
+    --legend-border-width: 1px;
+    --legend-border-radius: 5px;
+    --legend-padding: 10px;
+    --legend-width: 190px;
+    --legend-item-height: 16px;
+    --legend-category-spacing: 8px;
+    --legend-category-bg: rgba(255, 255, 255, 0.05);
+    --legend-category-border: rgba(255, 255, 255, 0.1);
+    --legend-circle-radius: 6px;
+    --legend-circle-radius-multi: 7px;
+    --legend-font-size: 11px;
+    --legend-header-font-size: 14px;
+    --legend-category-font-size: 13px;
+    --legend-category-font-size-single: 12px;
+    --legend-text-color: white;
+    --legend-category-color: #fff;
+    --legend-category-color-single: #ccc;
+    
+    /* Resize debounce timing */
+    --resize-debounce-ms: 100;
+}
+
+/* Basic SVG constraints - prevent unconstrained growth */
+svg {
+    max-width: 100%;
+    /* max-height: 150vh; */
+}
+
+/* Grid container for layout */
+.grid-container {
+    display: grid;
+    grid-template-columns: 1fr 6px 2fr; /* 6px for the resizer */
+    gap: 0;
+    height: 100vh; /* Full viewport height */
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+/* Resizer styles */
+.grid-resizer {
+    background: #444;
+    cursor: col-resize;
+    width: 6px;
+    height: 100%;
+    z-index: 10;
+    transition: background 0.2s;
+}
+.grid-resizer:hover,
+.grid-resizer.active {
+    background: #2196F3;
+}
+
+/* SVG container */
+.svg-container {
+    background-color: black;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow: auto;
+    width: 100%;
+    height: 100%;
+    /* min-height: 600px; */
+}
+
+.svg-container svg {
+    width: 100%;
+    /* height: 100%; - Remove height constraint to allow dynamic sizing */
+    /* height: 100vh; */
+    /* min-height: 600px; */
+    display: block;
+}
+
+/* Details container */
+.details-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    background-color: black; /* Optional background for contrast */
+    padding: 10px;
+    box-sizing: border-box;
+    overflow: auto; /* Handle overflow if content is too large */
+}
+
+/* The switch - the box around the slider */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 30px;
+    height: 17px;
+    margin: 0;
+  }
+  
+  /* Hide default HTML checkbox */
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  
+  /* The slider */
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    -webkit-transition: .4s;
+    transition: .4s;
+  }
+  
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 13px;
+    width: 13px;
+    left: 2px;
+    bottom: 1.5px;
+    background-color: white;
+    -webkit-transition: .4s;
+    transition: .4s;
+  }
+  
+  input:checked + .slider {
+    background-color: #2196F3;
+  }
+  
+  input:focus + .slider {
+    box-shadow: 0 0 1px #2196F3;
+  }
+  
+  input:checked + .slider:before {
+    -webkit-transform: translateX(13px);
+    -ms-transform: translateX(13px);
+    transform: translateX(13px);
+  }
+  
+  /* Rounded sliders */
+  .slider.round {
+    border-radius: 17px;
+    padding-left: 30px;
+  }
+  
+  .slider.round:before {
+    border-radius: 50%;
+  }
+
+  /* Styles for the node-details div */
+#node-details {
+    margin-top: 20px;
+    color: white;
+    font-size: 16px;
+}
+
+/* Styles for buttons in the text-buttons div */
+#text-buttons button {
+    margin: 5px;
+    padding: 10px;
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.parent-button {
+    margin: 5px;
+    padding: 10px;
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.parent-button:hover {
+    background-color: #1976D2;
+}
+
+/* Node details styling */
+#node-details {
+    margin-bottom: 20px; /* Space between node details and buttons */
+}
+
+/* Text buttons styling */
+#text-buttons {
+    display: flex;
+    flex-wrap: wrap; /* Allow buttons to wrap if they overflow */
+    gap: 10px; /* Space between buttons */
+}
+
+/* Add to style.css */
+#grid-slider {
+    width: 200px;
+}
+
+.switch-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    justify-content: space-between;
+    /* padding: 0 24px; */
+    margin-bottom: 20px;
+    margin-top: 20px;
+    padding-right: 10%;
+    padding-left: 10%;
+}
+
+header, footer {
+    display: flex;
+    /* justify-content: space-between; */
+    flex-direction: column;
+    align-items: center;
+    /* margin-bottom: 20px; */
+    background-color: #00284A;
+}
+
+/* Pie slice styling for multi-value nodes */
+.pie-slice {
+    stroke: #333;
+    stroke-width: 1;
+}
+
+/* Optional: Add hover effects for pie slices */
+.pie-slice:hover {
+    stroke: #fff;
+    stroke-width: 2;
+    opacity: 0.8;
+}
+
+/* Color legend styling */
+.color-legend {
+    pointer-events: none; /* Prevent legend from interfering with interactions */
+}
+
+.color-legend text {
+    font-family: 'Lora', serif;
+    user-select: none;
+}
