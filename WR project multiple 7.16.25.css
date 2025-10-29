@@ -24,8 +24,8 @@ body {
     --religion-hue-end: 60;
     --geography-hue-start: 120; /* Green to Cyan range */
     --geography-hue-end: 180;
-    --branch-hue-start: 240;    /* Blue to Magenta range */
-    --branch-hue-end: 300;
+    --detailedView-hue-start: 240;    /* Blue to Magenta range */
+    --detailedView-hue-end: 300;
     --fallback-hue-start: 60;   /* Yellow to Green range */
     --fallback-hue-end: 120;
     
@@ -227,6 +227,14 @@ svg {
     cursor: pointer;
 }
 
+.button-wrapper {
+    text-align: center;
+    margin-bottom: 20px;
+    /* Remove or change the red background */
+    background-color: transparent; /* or remove this line entirely */
+    border: none;
+}
+
 .parent-button:hover {
     background-color: #1976D2;
 }
@@ -290,4 +298,11 @@ header, footer {
 .color-legend text {
     font-family: 'Lora', serif;
     user-select: none;
+}
+
+.connection-reason {
+    display: block; /* Stack reasons vertically */
+    font-size: 12px;
+    color: #aaa;
+    margin: 2px 0;
 }

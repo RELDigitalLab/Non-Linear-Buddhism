@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Non-Linear Buddhism</title>
+    <link rel="stylesheet" href="style 7.16.25.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.skypack.dev/d3-dag@0.8.2"></script>
+</head>
+<body>
+    <header>
+        <h1>Non-Linear World Religions</h1>
+        <p>This is a visualization of different interpretations of Buddhism. Click on the switches to see how different events are connected to each other!</p>
+    </header>
+    <div class="switch-row">
+        <label class="switch" id="religion_toggle">
+            <input type="checkbox" checked>
+            <span class="slider round">Religion</span>
+        </label>
+        <label class="switch" id="geography_toggle">
+            <input type="checkbox">
+            <span class="slider round">Geography</span>
+        </label>
+        <label class="switch" id="branch_toggle">
+            <input type="checkbox">
+            <span class="slider round">Branch</span>
+        </label>
+    </div>
+
+    <div class="grid-container">
+        <div class="svg-container">
+            <svg></svg>
+        </div>
+        <div class="grid-resizer" id="grid-resizer"></div>
+        <div class="details-container">
+            <div id="node-details">
+                <h2 id="node-title">Welcome!</h2>
+                <span id="node-content">
+                    <p>Hello! Welcome to <i>Non-Linear World Religions</i>, an <a href="https://en.wikipedia.org/wiki/Open_educational_resources">Open Educational Resource</a> for World Religions.</a>
+                    This project allows you to navigate through narratives of world religions in a non-linear fashion.
+                    You can select how you would like to organize "events"--by chronology, or geography, or religious branch.
+                    Each choice will connect disparate events by each storytelling logic.
+                    Feel free to select a place to start, and to navigate through your own adventure!</p>
+                    <p>Also, you can use the slider to make either the chart or the text larger.</p>
+            </span>
+            </div>
+            <div id="text-buttons"></div>
+        </div>
+    </div>
+
+    <footer>
+        <p>Created by the <a href="https://digitallab.religion.ua.edu/">RELdl</a></p>
+    </footer>   
+
+    <script type="module">
+        import { dagStratify, sugiyama, decrossTwoLayer } from "https://cdn.skypack.dev/d3-dag@0.8.2";
+    
+        // Function to fetch and sort data
+        async function fetchData() {
+            const resp = await fetch(
+                "https://raw.githubusercontent.com/RELDigitalLab/Non-Linear-Buddhism/main/data/non-linear data 2.4.json"
+            );
+            const rawData = await resp.json();
+            const sortedData = rawData.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+            sortedData.forEach((event, i) => {
+                event.idNumber = i + 1;
+                event.parentIds = [];
+            });
+            return sortedData;
+        }        // Function to parse data based on toggle states
+        function parseData(events, currentState) {
+            // Ensure at least one toggle is active (default to religion if none are active)
+            const hasActiveToggle = currentState.religion || currentState.geography || currentState.branch;
+            if (!hasActiveToggle) {
+                currentState.religion = true;
+            }
+            
+            return events.map(event => {
+                let parentMatches = [];
+                let eventGeos = event["Area"].split(",");
+                eventGeos = eventGeos.map(geo => geo.trim());
+                let eventBranches = event["Branch"].split(",");
+                eventBranches = eventBranches.map(branch => branch.trim());
+                let eventReligions = event["Religion"] ? event["Religion"].split(",") : [];
+                eventReligions = eventReligions.map(religion => religion.trim());
+
+                // Logic for chronology
+                // if (currentState.chronology && event.idNumber + 1 <= events.length) {
+                //     let chronologyEvent = events[event.idNumber];
+                //     parentMatches.push(chronologyEvent.idNumber);
+                // }
+
+                // Logic for religion
+                if (currentState.religion) {
+                    eventReligions.forEach(religion => {
+                        if (religion === "") return;
+                        else {
+                            let matchingEvents = events.filter(e => e["Religion"] && e["Religion"].includes(religion) && Number(e["Time (Beginning)"]) > Number(event["Time (Beginning)"]));
+                            matchingEvents.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+                            if (matchingEvents.length > 0 && !parentMatches.includes(matchingEvents[0].idNumber)) {
+                                parentMatches.push(matchingEvents[0].idNumber);
+                            }
+                        }
+                    });
+                }
+    
+                // Logic for geographies
+                if (currentState.geography) {
+                    eventGeos.forEach(geo => {
+                        if (geo === "") return;
+                        else {
+                            let matchingEvents = events.filter(e => e["Area"].includes(geo) && Number(e["Time (Beginning)"]) > Number(event["Time (Beginning)"]));
+                            matchingEvents.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+                            if (matchingEvents.length > 0 && !parentMatches.includes(matchingEvents[0].idNumber)) {
+                                parentMatches.push(matchingEvents[0].idNumber);
+                            }
+                        }
+                    });
+                }
+    
+                // Logic for branches
+                if (currentState.branch) {
+                    eventBranches.forEach(branch => {
+                        if (branch === "") return;
+                        else {
+                            let matchingEvents = events.filter(e => e["Branch"].includes(branch) && Number(e["Time (Beginning)"]) > Number(event["Time (Beginning)"]));
+                            matchingEvents.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+                            if (matchingEvents.length > 0 && !parentMatches.includes(matchingEvents[0].idNumber)) {
+                                parentMatches.push(matchingEvents[0].idNumber);
+                            }
+                        }
+                    });
+                }
+    
+                event.parentIds = parentMatches;
+                return event;
+            });
+        }
+    
+        // Function to create color mappings based on active toggles
+        function createColorMappings(data, currentState) {
+            const allValues = new Set();
+            const nodeColorData = new Map();
+            
+            // Collect all unique values across all active categories
+            data.forEach(event => {
+                const nodeColors = [];
+                
+                if (currentState.religion && event["Religion"]) {
+                    const religions = event["Religion"].split(",").map(r => r.trim()).filter(r => r !== "");
+                    religions.forEach(religion => {
+                        const key = `religion:${religion}`;
+                        allValues.add(key);
+                        nodeColors.push(key);
+                    });
+                }
+                
+                if (currentState.geography && event["Area"]) {
+                    const areas = event["Area"].split(",").map(a => a.trim()).filter(a => a !== "");
+                    areas.forEach(area => {
+                        const key = `geography:${area}`;
+                        allValues.add(key);
+                        nodeColors.push(key);
+                    });
+                }
+                
+                if (currentState.branch && event["Branch"]) {
+                    const branches = event["Branch"].split(",").map(b => b.trim()).filter(b => b !== "");
+                    branches.forEach(branch => {
+                        const key = `branch:${branch}`;
+                        allValues.add(key);
+                        nodeColors.push(key);
+                    });
+                }
+                
+                // If no toggles are active, use unique ID
+                if (nodeColors.length === 0) {
+                    const key = `id:${event.idNumber}`;
+                    allValues.add(key);
+                    nodeColors.push(key);
+                }
+                
+                nodeColorData.set(event.idNumber.toString(), nodeColors);
+            });
+            
+            // Create color mapping for all unique values
+            const valueArray = Array.from(allValues);
+            const interp = d3.interpolateRainbow;
+            const valueColorMap = new Map();
+            
+            valueArray.forEach((value, i) => {
+                valueColorMap.set(value, interp(i / valueArray.length));
+            });
+            
+            return { nodeColorData, valueColorMap };
+        }
+        
+        // Function to create pie slice paths for multi-value nodes
+        function createPieSlices(colors, radius) {
+            if (colors.length === 1) return null;
+            
+            const anglePerSlice = (2 * Math.PI) / colors.length;
+            const slices = [];
+            
+            colors.forEach((color, i) => {
+                const startAngle = i * anglePerSlice;
+                const endAngle = (i + 1) * anglePerSlice;
+                
+                const x1 = Math.cos(startAngle) * radius;
+                const y1 = Math.sin(startAngle) * radius;
+                const x2 = Math.cos(endAngle) * radius;
+                const y2 = Math.sin(endAngle) * radius;
+                
+                const largeArc = anglePerSlice > Math.PI ? 1 : 0;
+                
+                const pathData = [
+                    `M 0 0`,
+                    `L ${x1} ${y1}`,
+                    `A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`,
+                    `Z`
+                ].join(' ');
+                
+                slices.push({ path: pathData, color });
+            });
+            
+            return slices;
+        }
+
+        // Function to render the D3 DAG visualization
+        function renderVisualization(data, currentState) {
+            const dagData = data.map(event => ({
+                id: event.idNumber.toString(),
+                title: event["Title"],
+                content: event["Content"] || "",
+                area: event["Area"] || "Unknown",
+                branch: event["Branch"] || [],
+                religion: event["Religion"] || "",
+                subbranch: event["Subbranch"] || "",
+                timeStart: event["Time (Beginning)"],
+                timeEnd: event["Time (End)"] || event["Time (Beginning)"],
+                parentIds: event["parentIds"].map(String)
+            }));
+    
+            const dag = dagStratify()(dagData);
+    
+            // Get current container size
+            const svgContainer = document.querySelector('.svg-container');
+            const containerWidth = svgContainer.clientWidth;
+            const containerHeight = svgContainer.clientHeight || 800; // fallback if height is 0
+    
+            // Get sizing constants from CSS custom properties
+            const computedStyle = getComputedStyle(document.documentElement);
+            const nodeRadius = parseInt(computedStyle.getPropertyValue('--base-node-radius')) || 150;
+            const maxNodePercentage = parseFloat(computedStyle.getPropertyValue('--max-node-percentage')) / 100 || 0.08;
+            const maxNodeAbsolute = parseInt(computedStyle.getPropertyValue('--max-node-absolute')) || 80;
+            const minAllowedRadius = parseInt(computedStyle.getPropertyValue('--min-node-radius')) || 25;
+            const baseFontSize = parseInt(computedStyle.getPropertyValue('--base-font-size')) || 55;
+            const minFontSize = parseInt(computedStyle.getPropertyValue('--min-font-size')) || 12;
+            
+            // Calculate maximum allowable node radius based on container width
+            // This ensures nodes never become too large relative to the viewport
+            const maxAllowedRadius = Math.min(containerWidth * maxNodePercentage, maxNodeAbsolute);
+            const clampedNodeRadius = Math.max(Math.min(nodeRadius, maxAllowedRadius), minAllowedRadius);
+            
+            // Calculate font size based on clamped node radius
+            const scaledFontSize = Math.max((clampedNodeRadius / nodeRadius) * baseFontSize, minFontSize);
+            
+            const containerBasedSpacing = containerWidth / 2.5; // Increased from /3 to /2.5 for wider spacing
+            const nodeSpacingX = containerBasedSpacing; // Always use container-based spacing
+            const nodeSpacingY = 200; // Fixed vertical spacing
+            const layout = sugiyama().decross(decrossTwoLayer()).nodeSize(() => [nodeSpacingX, nodeSpacingY]);
+            const { width, height } = layout(dag);
+    
+            // Always scale to fill the container width exactly, but with limits
+            const targetWidth = containerWidth;
+            const scaleX = containerWidth / width; // Calculate actual scale needed
+            const scale = Math.min(scaleX, 1.5); // Reduced from 2.0 to 1.5 to leave more room for legend
+            const scaledHeight = height * scale;
+
+            // Debug logging
+            console.log('Layout debug:', {
+                containerWidth,
+                nodeRadius,
+                maxAllowedRadius,
+                minAllowedRadius,
+                clampedNodeRadius,
+                scaledFontSize,
+                containerBasedSpacing,
+                nodeSpacingX,
+                calculatedWidth: width,
+                targetWidth,
+                scaleX,
+                scale
+            });
+    
+            const svgSelection = d3.select("svg");
+            svgSelection
+                .attr("width", containerWidth)
+                .attr("height", scaledHeight) // Set height to exactly what's needed
+                .attr("viewBox", [0, 0, containerWidth, scaledHeight].join(" "));
+    
+            // Create a group that will be scaled and properly centered
+            // Calculate the scaled width to determine proper centering
+            const scaledWidth = width * scale;
+            const centerOffset = (containerWidth - scaledWidth) / 2;
+            const scaledGroup = svgSelection.append("g")
+                .attr("transform", `translate(${centerOffset}, 0) scale(${scale})`); // Center the scaled DAG
+    
+            const defs = svgSelection.append("defs");
+    
+            // Create color mappings based on active toggles
+            const { nodeColorData, valueColorMap } = createColorMappings(data, currentState);
+            
+            // Create a simple color map for single-color nodes and edge gradients
+            const nodeColorMap = new Map();
+            nodeColorData.forEach((colors, nodeId) => {
+                if (colors.length === 1) {
+                    nodeColorMap.set(nodeId, valueColorMap.get(colors[0]));
+                } else {
+                    // For multi-color nodes, use the first color for edge gradients
+                    nodeColorMap.set(nodeId, valueColorMap.get(colors[0]));
+                }
+            });
+    
+            const line = d3.line().curve(d3.curveCatmullRom).x(d => d.x).y(d => d.y);
+    
+            scaledGroup.append("g").selectAll("path")
+                .data(dag.links())
+                .enter().append("path")
+                .attr("d", ({ points }) => line(points))
+                .attr("fill", "none")
+                .attr("stroke-width", 3)
+                .attr("stroke", ({ source, target }) => {
+                    const gradId = `grad-${source.data.id}-${target.data.id}`;
+                    const grad = defs.append("linearGradient").attr("id", gradId).attr("gradientUnits", "userSpaceOnUse")
+                        .attr("x1", source.x).attr("x2", target.x).attr("y1", source.y).attr("y2", target.y);
+                    grad.append("stop").attr("offset", "0%").attr("stop-color", nodeColorMap.get(source.data.id));
+                    grad.append("stop").attr("offset", "100%").attr("stop-color", nodeColorMap.get(target.data.id));
+                    return `url(#${gradId})`;
+                });
+    
+            const nodes = scaledGroup.append("g").selectAll("g")
+                .data(dag.descendants())
+                .enter().append("g")
+                .attr("transform", d => `translate(${d.x}, ${d.y})`);
+    
+            // Variable to store the clicked node
+            let selectedNode = null;
+    
+            // Function to update node sizes
+            function updateNodeSizes(nodes, selectedNode, clampedNodeRadius) {
+                nodes.select("circle")
+                    .attr("r", d => (selectedNode && selectedNode.data.id === d.data.id ? clampedNodeRadius * 0.6 : clampedNodeRadius * 0.5));
+                    
+                // For pie slice nodes, we need to handle path elements differently
+                nodes.selectAll("path")
+                    .attr("transform", d => {
+                        const scale = (selectedNode && selectedNode.data.id === d.data.id ? 1.2 : 1.0);
+                        return `scale(${scale})`;
+                    });
+            }
+    
+            // Render nodes with pie slices for multi-value nodes
+            nodeColorData.forEach((colors, nodeId) => {
+                const nodeData = dag.descendants().find(d => d.data.id === nodeId);
+                if (!nodeData) return;
+                
+                const nodeGroup = nodes.filter(d => d.data.id === nodeId);
+                const actualColors = colors.map(colorKey => valueColorMap.get(colorKey));
+                
+                if (colors.length === 1) {
+                    // Single color node - use regular circle
+                    nodeGroup.append("circle")
+                        .attr("r", clampedNodeRadius * 0.5)
+                        .attr("fill", actualColors[0]);
+                } else {
+                    // Multi-color node - use pie slices
+                    const slices = createPieSlices(actualColors, clampedNodeRadius * 0.5);
+                    slices.forEach((slice, i) => {
+                        nodeGroup.append("path")
+                            .attr("d", slice.path)
+                            .attr("fill", slice.color)
+                            .attr("class", "pie-slice");
+                    });
+                }
+            });
+    
+            nodes.append("text")
+                .text(d => d.data.title)
+                .attr("font-weight", "bold")
+                .attr("text-anchor", "middle")
+                .attr("alignment-baseline", "middle")
+                .attr("fill", "white")
+                .attr("font-size", scaledFontSize); // Use scaled font size
+    
+            // Update parent buttons function
+            function updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius) {
+                textButtonsDiv.innerHTML = ""; // Clear existing buttons
+    
+                if (selectedNode && selectedNode.data.parentIds.length > 0) {
+                    selectedNode.data.parentIds.forEach(parentId => {
+                        const parentNode = dagData.find(node => node.id === parentId); // Find the parent node
+                        if (parentNode) {
+                            const button = document.createElement("button");
+                            button.textContent = parentNode.title; // Use the title of the parent node
+                            button.classList.add("parent-button"); // Add a class for styling
+    
+                            // Add a click event to the button to set the parent node as the selected node
+                            button.addEventListener("click", () => {
+                                selectedNode = dag.descendants().find(node => node.data.id === parentId); // Set parent as selectedNode
+                                updateNodeSizes(nodes, selectedNode, clampedNodeRadius); // Update node sizes to reflect the new selected node
+    
+                                // Update the node content and title display
+                                nodeContent.textContent = selectedNode ? selectedNode.data.content : "None";
+                                const nodeTitle = document.getElementById("node-title");
+                                nodeTitle.textContent = selectedNode ? selectedNode.data.title : "";
+    
+                                // Re-render the parent buttons for the new selected node
+                                updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius);
+    
+                                console.log(`Parent Node Selected: ${selectedNode.data.title}`);
+                            });
+    
+                            textButtonsDiv.appendChild(button);
+                        }
+                    });
+                }
+            }
+    
+            // Add click event listener to nodes
+            nodes.on("click", function(event, d) {
+                selectedNode = selectedNode && selectedNode.data.id === d.data.id ? null : d; // Toggle selection
+                updateNodeSizes(nodes, selectedNode, clampedNodeRadius); // Update node sizes
+
+                // Update the node content display with only the selectedNode's content
+                const nodeContent = document.getElementById("node-content");
+                const nodeTitle = document.getElementById("node-title");
+                nodeContent.textContent = selectedNode ? selectedNode.data.content : "No node selected";
+                nodeTitle.textContent = selectedNode ? selectedNode.data.title : "";
+
+                // Update the parent buttons
+                const textButtonsDiv = document.getElementById("text-buttons");
+                updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius);
+
+                console.log("Selected Node:", selectedNode);
+            });
+    
+            // Initial size update
+            updateNodeSizes(nodes, selectedNode, clampedNodeRadius);
+            
+            // Add color legend (position relative to actual DAG content)
+            createColorLegend(svgSelection, valueColorMap, containerWidth, scaledHeight, centerOffset, scaledWidth);
+    
+            return svgSelection;
+        }
+        
+        // Function to create color legend
+        function createColorLegend(svgSelection, valueColorMap, containerWidth, containerHeight, dagCenterOffset, dagWidth) {
+            const legendData = Array.from(valueColorMap.entries()).map(([key, color]) => {
+                // Extract the readable label from the key
+                const [category, value] = key.split(':');
+                return {
+                    key: key,
+                    label: value,
+                    category: category,
+                    color: color
+                };
+            });
+            
+            // Group by category for better organization
+            const groupedLegend = {};
+            legendData.forEach(item => {
+                if (!groupedLegend[item.category]) {
+                    groupedLegend[item.category] = [];
+                }
+                groupedLegend[item.category].push(item);
+            });
+            
+            // Position legend relative to the actual DAG content area
+            const dagRightEdge = dagCenterOffset + dagWidth;
+            const legendX = Math.min(dagRightEdge - 200, containerWidth - 210); // Ensure it fits within SVG
+            
+            // Create legend group positioned relative to DAG content
+            const legendGroup = svgSelection.append("g")
+                .attr("class", "color-legend")
+                .attr("transform", `translate(${legendX}, 20)`);
+            
+            // Add legend background
+            const legendBg = legendGroup.append("rect")
+                .attr("x", -10)
+                .attr("y", -10)
+                .attr("rx", 5)
+                .attr("fill", "rgba(0, 0, 0, 0.8)")
+                .attr("stroke", "#444")
+                .attr("stroke-width", 1);
+            
+            let yOffset = 0;
+            
+            // Add legend title
+            legendGroup.append("text")
+                .attr("x", 0)
+                .attr("y", yOffset + 15) // Adjust for better baseline alignment
+                .attr("fill", "white")
+                .attr("font-size", "14")
+                .attr("font-weight", "bold")
+                .text("Color Legend");
+            
+            yOffset += 25;
+            
+            // Add entries for each category
+            Object.entries(groupedLegend).forEach(([category, items]) => {
+                if (items.length === 0) return;
+                
+                // Category header
+                legendGroup.append("text")
+                    .attr("x", 0)
+                    .attr("y", yOffset + 12) // Adjust for better baseline alignment
+                    .attr("fill", "#ccc")
+                    .attr("font-size", "12")
+                    .attr("font-weight", "bold")
+                    .text(category.charAt(0).toUpperCase() + category.slice(1) + ":");
+                
+                yOffset += 18;
+                
+                // Category items
+                items.forEach(item => {
+                    // Color circle
+                    legendGroup.append("circle")
+                        .attr("cx", 8)
+                        .attr("cy", yOffset + 8) // Center vertically with text
+                        .attr("r", 6)
+                        .attr("fill", item.color);
+                    
+                    // Label text
+                    legendGroup.append("text")
+                        .attr("x", 20)
+                        .attr("y", yOffset + 12) // Adjust for better baseline alignment
+                        .attr("fill", "white")
+                        .attr("font-size", "11")
+                        .text(item.label.length > 15 ? item.label.substring(0, 15) + "..." : item.label);
+                    
+                    yOffset += 16;
+                });
+                
+                yOffset += 5; // Extra space between categories
+            });
+            
+            // Update background size to fit content
+            legendBg
+                .attr("width", 190)
+                .attr("height", yOffset + 10); // Add a bit more padding at bottom
+        }
+    
+        // Main function to initialize and handle toggle changes
+        (async () => {
+            const religionToggle = document.getElementById("religion_toggle");
+            const geographyToggle = document.getElementById("geography_toggle");
+            const branchToggle = document.getElementById("branch_toggle");
+    
+            let currentState = {
+                religion: true,
+                geography: false,
+                branch: false
+            };
+            
+            // Ensure only religion toggle is checked initially
+            religionToggle.querySelector("input").checked = true;
+            geographyToggle.querySelector("input").checked = false;
+            branchToggle.querySelector("input").checked = false;
+    
+            const sortedData = await fetchData();
+    
+            function updateVisualization() {
+                const parsedData = parseData(sortedData, currentState);
+                d3.select("svg").selectAll("*").remove(); // Clear existing visualization
+                renderVisualization(parsedData, currentState);
+            }            function updateToggleState(activeToggle) {
+                // Reset all toggles to false
+                currentState.religion = false;
+                currentState.geography = false;
+                currentState.branch = false;
+                
+                // Uncheck all toggle inputs
+                religionToggle.querySelector("input").checked = false;
+                geographyToggle.querySelector("input").checked = false;
+                branchToggle.querySelector("input").checked = false;
+                
+                // Set the active toggle to true and check its input
+                if (activeToggle === 'religion') {
+                    currentState.religion = true;
+                    religionToggle.querySelector("input").checked = true;
+                } else if (activeToggle === 'geography') {
+                    currentState.geography = true;
+                    geographyToggle.querySelector("input").checked = true;
+                } else if (activeToggle === 'branch') {
+                    currentState.branch = true;
+                    branchToggle.querySelector("input").checked = true;
+                }
+                
+                updateVisualization();
+            }
+
+            religionToggle.addEventListener("click", function() {
+                const isCurrentlyChecked = this.querySelector("input").checked;
+                if (isCurrentlyChecked) {
+                    updateToggleState('religion');
+                } else {
+                    // If clicking to uncheck, turn on religion instead
+                    updateToggleState('religion');
+                }
+            });
+
+            geographyToggle.addEventListener("click", function() {
+                const isCurrentlyChecked = this.querySelector("input").checked;
+                if (isCurrentlyChecked) {
+                    updateToggleState('geography');
+                } else {
+                    // If clicking to uncheck, turn on geography instead
+                    updateToggleState('geography');
+                }
+            });
+
+            branchToggle.addEventListener("click", function() {
+                const isCurrentlyChecked = this.querySelector("input").checked;
+                if (isCurrentlyChecked) {
+                    updateToggleState('branch');
+                } else {
+                    // If clicking to uncheck, turn on branch instead
+                    updateToggleState('branch');
+                }
+            });
+    
+            updateVisualization(); // Initial render
+    
+            // Redraw DAG when svg-container is resized
+            const svgContainer = document.querySelector('.svg-container');
+            const resizeObserver = new ResizeObserver(() => {
+                updateVisualization();
+            });
+            resizeObserver.observe(svgContainer);
+    
+            // Vertical resizer logic
+            const gridContainer = document.querySelector('.grid-container');
+            const resizer = document.getElementById('grid-resizer');
+            let isResizing = false;
+    
+            resizer.addEventListener('mousedown', function(e) {
+                isResizing = true;
+                resizer.classList.add('active');
+                document.body.style.cursor = 'col-resize';
+            });
+    
+            document.addEventListener('mousemove', function(e) {
+                if (!isResizing) return;
+                // Calculate new column widths
+                const containerRect = gridContainer.getBoundingClientRect();
+                const offsetX = e.clientX - containerRect.left;
+                const totalWidth = containerRect.width;
+                // Prevent columns from being too small or too large
+                const min = 0.15, max = 0.85;
+                let leftRatio = offsetX / totalWidth;
+                if (leftRatio < min) leftRatio = min;
+                if (leftRatio > max) leftRatio = max;
+                let rightRatio = 1 - leftRatio;
+                gridContainer.style.gridTemplateColumns = `${leftRatio * 100}% 6px ${rightRatio * 100}%`;
+            });
+    
+            document.addEventListener('mouseup', function() {
+                if (isResizing) {
+                    isResizing = false;
+                    resizer.classList.remove('active');
+                    document.body.style.cursor = '';
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

@@ -20,9 +20,13 @@
             <input type="checkbox">
             <span class="slider round">Geography</span>
         </label>
-        <label class="switch" id="branch_toggle">
+        <label class="switch" id="detailedView_toggle">
             <input type="checkbox">
-            <span class="slider round">Branch</span>
+            <span class="slider round">Detailed View</span>
+        </label>
+        <label class="switch" id="chronology_check">
+            <input type="checkbox">
+            <span class="slider round">Chronology</span>
         </label>
     </div>
 
@@ -35,12 +39,18 @@
             <div id="node-details">
                 <h2 id="node-title">Welcome!</h2>
                 <span id="node-content">
-                    <p>Hello! Welcome to <i>Non-Linear World Religions</i>, an <a href="https://en.wikipedia.org/wiki/Open_educational_resources">Open Educational Resource</a> for World Religions.</a>
-                    This project allows you to navigate through narratives of world religions in a non-linear fashion.
-                    You can select how you would like to organize "events"--by chronology, or geography, or religious branch.
-                    Each choice will connect disparate events by each storytelling logic.
-                    Feel free to select a place to start, and to navigate through your own adventure!</p>
-                    <p>Also, you can use the slider to make either the chart or the text larger.</p>
+                    <p>The following description of what we commonly term World Religions and their predecessors allow the viewer to choose what connections they want to pursue.
+                        Whichever view (Geographic, World Religions, Alternate Grouping, or several at once) and starting point (contemporary to the past works from top to bottom or past to contemporary moves from the bottom up) that you choose provides a different succession of nodes and connections.
+                        In various places, you will also have to choose which node, among various options, that you will follow when multiple connections exist, as any separation/combination of religions into distinct communities has been created (and frequently undone) at particular points in time.
+                    </p>
+                    <p>With each of those choices, the visualization (and the choice itself) highlights that each description leaves out a whole range of items.
+                        Following one path, then, excludes other possibilities and predecessors/successors. Such choices are always present in any description.
+                        Instead of hiding those choices through an authoritative voice, this project requires you the viewer to make some of those choices and visually reminds you that making a different choice creates a different description.
+                    </p>
+                    <p>
+                        You can navigate through your narrative by selecting a node, reading through the text, and then choosing which button below the text interests you more.
+                        You can make the chart or the text larger by moving the slider between them.
+                    </p>
             </span>
             </div>
             <div id="text-buttons"></div>
@@ -68,11 +78,21 @@
             );
             const rawData = await resp.json();
             const sortedData = rawData.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+            const reverseSortedData = [...sortedData].reverse();
+            
+            // Assign IDs to sorted data
             sortedData.forEach((event, i) => {
                 event.idNumber = i + 1;
                 event.parentIds = [];
             });
-            return sortedData;
+            
+            // Assign IDs to reversed data (in reverse chronological order)
+            reverseSortedData.forEach((event, i) => {
+                event.idNumber = i + 1;
+                event.parentIds = [];
+            });
+            
+            return { sortedData, reverseSortedData };
         }        // Helper function to get CSS custom property values
         function getCSSValue(property, type = 'int', fallback = 0) {
             const computedStyle = getComputedStyle(document.documentElement);
@@ -91,16 +111,25 @@
         }
         
         // Helper function to find matching events for a category
-        function findMatchingEvents(events, currentEvent, categoryValue, categoryField) {
+        function findMatchingEvents(events, currentEvent, categoryValue, categoryField, reverseChronology = false) {
             if (!categoryValue || categoryValue === "") return [];
             
+            // Change comparison based on chronology direction
             const matchingEvents = events.filter(e => 
                 e[categoryField] && 
                 e[categoryField].includes(categoryValue) && 
-                Number(e["Time (Beginning)"]) > Number(currentEvent["Time (Beginning)"])
+                (reverseChronology 
+                    ? Number(e["Time (Beginning)"]) < Number(currentEvent["Time (Beginning)"])
+                    : Number(e["Time (Beginning)"]) > Number(currentEvent["Time (Beginning)"]))
             );
             
-            matchingEvents.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+            // Sort in appropriate direction
+            matchingEvents.sort((a, b) => 
+                reverseChronology 
+                    ? Number(b["Time (Beginning)"]) - Number(a["Time (Beginning)"]) // Descending for reverse
+                    : Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"])  // Ascending for normal
+            );
+            
             return matchingEvents.length > 0 ? [matchingEvents[0].idNumber] : [];
         }
         
@@ -109,23 +138,23 @@
             return events.map(event => {
                 let parentMatches = [];
                 const connectionReasons = new Map(); // Track why each connection was made
-                
+        
                 // Parse and trim values for each category
                 const eventGeos = event["Area"] ? event["Area"].split(",").map(geo => geo.trim()) : [];
-                const eventBranches = event["Branch"] ? event["Branch"].split(",").map(branch => branch.trim()) : [];
+                const eventDetailedViewes = event["Branch"] ? event["Branch"].split(",").map(detailedView => detailedView.trim()) : [];
                 const eventReligions = event["Religion"] ? event["Religion"].split(",").map(religion => religion.trim()) : [];
 
-                // Process each active category
+                // Process each active category - PASS chronology state
                 const categoryMappings = [
                     { active: currentState.religion, values: eventReligions, field: "Religion", category: "religion" },
                     { active: currentState.geography, values: eventGeos, field: "Area", category: "geography" },
-                    { active: currentState.branch, values: eventBranches, field: "Branch", category: "branch" }
+                    { active: currentState.detailedView, values: eventDetailedViewes, field: "Branch", category: "detailedView" }
                 ];
 
                 categoryMappings.forEach(({ active, values, field, category }) => {
                     if (active) {
                         values.forEach(value => {
-                            const matches = findMatchingEvents(events, event, value, field);
+                            const matches = findMatchingEvents(events, event, value, field, currentState.chronology);
                             matches.forEach(match => {
                                 if (!parentMatches.includes(match)) {
                                     parentMatches.push(match);
@@ -153,7 +182,7 @@
             const categoryValues = {
                 religion: new Set(),
                 geography: new Set(),
-                branch: new Set(),
+                detailedView: new Set(),
                 id: new Set()
             };
             
@@ -181,12 +210,12 @@
                     });
                 }
                 
-                if (currentState.branch && event["Branch"]) {
-                    const branches = event["Branch"].split(",").map(b => b.trim()).filter(b => b !== "");
-                    branches.forEach(branch => {
-                        const key = `branch:${branch}`;
+                if (currentState.detailedView && event["Branch"]) {
+                    const detailedViewes = event["Branch"].split(",").map(b => b.trim()).filter(b => b !== "");
+                    detailedViewes.forEach(detailedView => {
+                        const key = `detailedView:${detailedView}`;
                         allValues.add(key);
-                        categoryValues.branch.add(branch);
+                        categoryValues.detailedView.add(detailedView);
                         nodeColors.push(key);
                     });
                 }
@@ -221,9 +250,9 @@
                         hueStart: parseInt(computedStyle.getPropertyValue('--geography-hue-start')) || 120,
                         hueEnd: parseInt(computedStyle.getPropertyValue('--geography-hue-end')) || 180
                     },
-                    branch: { 
-                        hueStart: parseInt(computedStyle.getPropertyValue('--branch-hue-start')) || 240,
-                        hueEnd: parseInt(computedStyle.getPropertyValue('--branch-hue-end')) || 300
+                    detailedView: { 
+                        hueStart: parseInt(computedStyle.getPropertyValue('--detailedView-hue-start')) || 240,
+                        hueEnd: parseInt(computedStyle.getPropertyValue('--detailedView-hue-end')) || 300
                     },
                     id: { 
                         hueStart: parseInt(computedStyle.getPropertyValue('--fallback-hue-start')) || 60,
@@ -336,7 +365,7 @@
             // Get multiple toggle mode info for improved algorithm selection - MOVED EARLY
             const { nodeColorData, valueColorMap, multipleToggleMode } = createColorMappings(data, currentState);
             
-            // Now set up the layout sizing variables using CSS values
+            // Now set up the layout sizing variables using CSS custom properties
             const containerWidthDivisor = getCSSValue('--container-width-divisor', 'float', 2.5);
             const nodeSpacingY = getCSSValue('--node-spacing-y', 'int', 200);
             const containerBasedSpacing = containerWidth / containerWidthDivisor;
@@ -347,13 +376,13 @@
                 title: event["Title"],
                 content: event["Content"] || "",
                 area: event["Area"] || "Unknown",
-                branch: event["Branch"] || [],
+                detailedView: event["Branch"] ? event["Branch"].split(",").map(b => b.trim()) : [], // Parse Branch as array
                 religion: event["Religion"] || "",
-                subbranch: event["Subbranch"] || "",
+                subDetailedView: event["SubBranch"] || "", // Rename for consistency
                 timeStart: event["Time (Beginning)"],
                 timeEnd: event["Time (End)"] || event["Time (Beginning)"],
                 parentIds: event["parentIds"].map(String),
-                connectionReasons: event["connectionReasons"] || new Map() // Include connection reasons
+                connectionReasons: event["connectionReasons"] || new Map()
             }));
     
             const dag = d3.graphStratify()
@@ -589,32 +618,46 @@
             // Update parent buttons function
             function updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius) {
                 textButtonsDiv.innerHTML = ""; // Clear existing buttons
-    
+
                 if (selectedNode && selectedNode.data.parentIds.length > 0) {
                     selectedNode.data.parentIds.forEach(parentId => {
-                        const parentNode = dagData.find(node => node.id === parentId); // Find the parent node
+                        const parentNode = dagData.find(node => node.id === parentId);
                         if (parentNode) {
+                            const buttonWrapper = document.createElement('div');
+                            buttonWrapper.classList.add('button-wrapper');
+                            
+                            // Create header FIRST
+                            const header = document.createElement("h3");
+                            console.log("connection reasons for parent button:", selectedNode.data.connectionReasons);
+                            if (selectedNode.data.connectionReasons.has(parseInt(parentId))) {
+                                for (const reason of selectedNode.data.connectionReasons.get(parseInt(parentId))) {
+                                    const reasonSpan = document.createElement("span");
+                                    reasonSpan.textContent = `${reason.value}`;
+                                    reasonSpan.classList.add("connection-reason");
+                                    header.appendChild(reasonSpan);
+                                }
+                            }
+                            buttonWrapper.appendChild(header);
+
+                            // Then create and append button
                             const button = document.createElement("button");
-                            button.textContent = parentNode.title; // Use the title of the parent node
-                            button.classList.add("parent-button"); // Add a class for styling
-    
-                            // Add a click event to the button to set the parent node as the selected node
+                            button.textContent = parentNode.title;
+                            button.classList.add("parent-button");
+                            buttonWrapper.appendChild(button);
+
+                            // Add click event to button
                             button.addEventListener("click", () => {
-                                selectedNode = dagNodes.find(node => node.data.id === parentId); // Set parent as selectedNode
-                                updateNodeSizes(nodes, selectedNode, clampedNodeRadius); // Update node sizes to reflect the new selected node
-    
-                                // Update the node content and title display
+                                selectedNode = dagNodes.find(node => node.data.id === parentId);
+                                updateNodeSizes(nodes, selectedNode, clampedNodeRadius);
                                 nodeContent.textContent = selectedNode ? selectedNode.data.content : "None";
                                 const nodeTitle = document.getElementById("node-title");
                                 nodeTitle.textContent = selectedNode ? selectedNode.data.title : "";
-    
-                                // Re-render the parent buttons for the new selected node
                                 updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius);
-    
                                 debugLog(`Parent Node Selected: ${selectedNode.data.title}`);
                             });
-    
-                            textButtonsDiv.appendChild(button);
+
+                            // APPEND THE WRAPPER, not just the button!
+                            textButtonsDiv.appendChild(buttonWrapper);
                         }
                     });
                 }
@@ -795,37 +838,46 @@
         (async () => {
             const religionToggle = document.getElementById("religion_toggle");
             const geographyToggle = document.getElementById("geography_toggle");
-            const branchToggle = document.getElementById("branch_toggle");
-    
+            const detailedViewToggle = document.getElementById("detailedView_toggle");
+            const chronologyToggle = document.getElementById("chronology_check");
+
             let currentState = {
                 religion: religionToggle.querySelector("input").checked,
                 geography: geographyToggle.querySelector("input").checked,
-                branch: branchToggle.querySelector("input").checked
+                detailedView: detailedViewToggle.querySelector("input").checked,
+                chronology: chronologyToggle.querySelector("input").checked
             };
-    
-            const sortedData = await fetchData();
-    
+
+            const { sortedData, reverseSortedData } = await fetchData();
+
             function updateVisualization() {
-                const parsedData = parseData(sortedData, currentState);
+                // Use reversed data if chronology is checked, otherwise use normal sorted data
+                const dataToUse = currentState.chronology ? reverseSortedData : sortedData;
+                const parsedData = parseData(dataToUse, currentState);
                 d3.select("svg").selectAll("*").remove(); // Clear existing visualization
                 renderVisualization(parsedData, currentState);
             }
-    
+
             religionToggle.addEventListener("click", function() {
                 currentState.religion = this.querySelector("input").checked;
                 updateVisualization();
             });
-    
+
             geographyToggle.addEventListener("click", function() {
                 currentState.geography = this.querySelector("input").checked;
                 updateVisualization();
             });
-    
-            branchToggle.addEventListener("click", function() {
-                currentState.branch = this.querySelector("input").checked;
+
+            detailedViewToggle.addEventListener("click", function() {
+                currentState.detailedView = this.querySelector("input").checked;
                 updateVisualization();
             });
-    
+
+            chronologyToggle.addEventListener("click", function() {
+                currentState.chronology = this.querySelector("input").checked;
+                updateVisualization();
+            });
+
             updateVisualization(); // Initial render
     
             // Redraw DAG when svg-container is resized

@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Non-Linear Buddhism</title>
+    <link rel="stylesheet" href="style_multiple 7.16.25.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/d3-dag@1.1.0"></script>
+</head>
+<body>
+    <header>
+        <h1>Non-Linear World Religions</h1>
+        <p>This is a visualization of different interpretations of Buddhism. Click on the switches to see how different events are connected to each other!</p>
+    </header>
+    <div class="switch-row">
+        <label class="switch" id="religion_toggle">
+            <input type="checkbox" checked>
+            <span class="slider round">Religion</span>
+        </label>
+        <label class="switch" id="geography_toggle">
+            <input type="checkbox">
+            <span class="slider round">Geography</span>
+        </label>
+        <label class="switch" id="branch_toggle">
+            <input type="checkbox">
+            <span class="slider round">Branch</span>
+        </label>
+    </div>
+
+    <div class="grid-container">
+        <div class="svg-container">
+            <svg></svg>
+        </div>
+        <div class="grid-resizer" id="grid-resizer"></div>
+        <div class="details-container">
+            <div id="node-details">
+                <h2 id="node-title">Welcome!</h2>
+                <span id="node-content">
+                    <p>Hello! Welcome to <i>Non-Linear World Religions</i>, an <a href="https://en.wikipedia.org/wiki/Open_educational_resources">Open Educational Resource</a> for World Religions.</a>
+                    This project allows you to navigate through narratives of world religions in a non-linear fashion.
+                    You can select how you would like to organize "events"--by chronology, or geography, or religious branch.
+                    Each choice will connect disparate events by each storytelling logic.
+                    Feel free to select a place to start, and to navigate through your own adventure!</p>
+                    <p>Also, you can use the slider to make either the chart or the text larger.</p>
+            </span>
+            </div>
+            <div id="text-buttons"></div>
+        </div>
+    </div>
+
+    <footer>    
+        <p>Created by the <a href="https://digitallab.religion.ua.edu/">RELdl</a></p>
+    </footer>   
+
+    <script>
+        // Access d3-dag functions from the global d3 namespace (version 1.1.0 API)
+        const { graphStratify, sugiyama, decrossOpt, decrossTwoLayer } = d3;
+        
+        // Configuration - set DEBUG to false for production
+        const DEBUG = true;
+        const debugLog = DEBUG ? console.log : () => {};
+        const debugWarn = DEBUG ? console.warn : () => {};
+        const debugError = DEBUG ? console.error : () => {};
+    
+        // Function to fetch and sort data
+        async function fetchData() {
+            const resp = await fetch(
+                "https://raw.githubusercontent.com/RELDigitalLab/Non-Linear-Buddhism/main/data/non-linear data 2.5.json"
+            );
+            const rawData = await resp.json();
+            const sortedData = rawData.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+            sortedData.forEach((event, i) => {
+                event.idNumber = i + 1;
+                event.parentIds = [];
+            });
+            return sortedData;
+        }        // Helper function to get CSS custom property values
+        function getCSSValue(property, type = 'int', fallback = 0) {
+            const computedStyle = getComputedStyle(document.documentElement);
+            const value = computedStyle.getPropertyValue(property);
+            
+            switch (type) {
+                case 'int':
+                    return parseInt(value) || fallback;
+                case 'float':
+                    return parseFloat(value) || fallback;
+                case 'percent':
+                    return parseFloat(value) / 100 || fallback;
+                default:
+                    return value || fallback;
+            }
+        }
+        
+        // Helper function to find matching events for a category
+        function findMatchingEvents(events, currentEvent, categoryValue, categoryField) {
+            if (!categoryValue || categoryValue === "") return [];
+            
+            const matchingEvents = events.filter(e => 
+                e[categoryField] && 
+                e[categoryField].includes(categoryValue) && 
+                Number(e["Time (Beginning)"]) > Number(currentEvent["Time (Beginning)"])
+            );
+            
+            matchingEvents.sort((a, b) => Number(a["Time (Beginning)"]) - Number(b["Time (Beginning)"]));
+            return matchingEvents.length > 0 ? [matchingEvents[0].idNumber] : [];
+        }
+        
+        // Function to parse data based on toggle states
+        function parseData(events, currentState) {
+            return events.map(event => {
+                let parentMatches = [];
+                const connectionReasons = new Map(); // Track why each connection was made
+                
+                // Parse and trim values for each category
+                const eventGeos = event["Area"] ? event["Area"].split(",").map(geo => geo.trim()) : [];
+                const eventBranches = event["Branch"] ? event["Branch"].split(",").map(branch => branch.trim()) : [];
+                const eventReligions = event["Religion"] ? event["Religion"].split(",").map(religion => religion.trim()) : [];
+
+                // Process each active category
+                const categoryMappings = [
+                    { active: currentState.religion, values: eventReligions, field: "Religion", category: "religion" },
+                    { active: currentState.geography, values: eventGeos, field: "Area", category: "geography" },
+                    { active: currentState.branch, values: eventBranches, field: "Branch", category: "branch" }
+                ];
+
+                categoryMappings.forEach(({ active, values, field, category }) => {
+                    if (active) {
+                        values.forEach(value => {
+                            const matches = findMatchingEvents(events, event, value, field);
+                            matches.forEach(match => {
+                                if (!parentMatches.includes(match)) {
+                                    parentMatches.push(match);
+                                }
+                                // Track the specific value and category that created this connection
+                                if (!connectionReasons.has(match)) {
+                                    connectionReasons.set(match, []);
+                                }
+                                connectionReasons.get(match).push({ category, value });
+                            });
+                        });
+                    }
+                });
+
+                event.parentIds = parentMatches;
+                event.connectionReasons = connectionReasons; // Store connection reasons
+                return event;
+            });
+        }
+    
+        // Function to create color mappings based on active toggles
+        function createColorMappings(data, currentState) {
+            const allValues = new Set();
+            const nodeColorData = new Map();
+            const categoryValues = {
+                religion: new Set(),
+                geography: new Set(),
+                branch: new Set(),
+                id: new Set()
+            };
+            
+            // Collect all unique values across all active categories
+            data.forEach(event => {
+                const nodeColors = [];
+                
+                if (currentState.religion && event["Religion"]) {
+                    const religions = event["Religion"].split(",").map(r => r.trim()).filter(r => r !== "");
+                    religions.forEach(religion => {
+                        const key = `religion:${religion}`;
+                        allValues.add(key);
+                        categoryValues.religion.add(religion);
+                        nodeColors.push(key);
+                    });
+                }
+                
+                if (currentState.geography && event["Area"]) {
+                    const areas = event["Area"].split(",").map(a => a.trim()).filter(a => a !== "");
+                    areas.forEach(area => {
+                        const key = `geography:${area}`;
+                        allValues.add(key);
+                        categoryValues.geography.add(area);
+                        nodeColors.push(key);
+                    });
+                }
+                
+                if (currentState.branch && event["Branch"]) {
+                    const branches = event["Branch"].split(",").map(b => b.trim()).filter(b => b !== "");
+                    branches.forEach(branch => {
+                        const key = `branch:${branch}`;
+                        allValues.add(key);
+                        categoryValues.branch.add(branch);
+                        nodeColors.push(key);
+                    });
+                }
+                
+                // If no toggles are active, use unique ID
+                if (nodeColors.length === 0) {
+                    const key = `id:${event.idNumber}`;
+                    allValues.add(key);
+                    categoryValues.id.add(event.idNumber.toString());
+                    nodeColors.push(key);
+                }
+                
+                nodeColorData.set(event.idNumber.toString(), nodeColors);
+            });
+            
+            // Determine if multiple toggles are active
+            const activeToggles = Object.keys(currentState).filter(key => currentState[key]);
+            const multipleToggleMode = activeToggles.length > 1;
+            
+            const valueColorMap = new Map();
+            
+            if (multipleToggleMode) {
+                // Multiple toggles active: use distinct color families for each category
+                // Get color family values from CSS custom properties
+                const computedStyle = getComputedStyle(document.documentElement);
+                const colorFamilies = {
+                    religion: { 
+                        hueStart: parseInt(computedStyle.getPropertyValue('--religion-hue-start')) || 0,
+                        hueEnd: parseInt(computedStyle.getPropertyValue('--religion-hue-end')) || 60
+                    },
+                    geography: { 
+                        hueStart: parseInt(computedStyle.getPropertyValue('--geography-hue-start')) || 120,
+                        hueEnd: parseInt(computedStyle.getPropertyValue('--geography-hue-end')) || 180
+                    },
+                    branch: { 
+                        hueStart: parseInt(computedStyle.getPropertyValue('--branch-hue-start')) || 240,
+                        hueEnd: parseInt(computedStyle.getPropertyValue('--branch-hue-end')) || 300
+                    },
+                    id: { 
+                        hueStart: parseInt(computedStyle.getPropertyValue('--fallback-hue-start')) || 60,
+                        hueEnd: parseInt(computedStyle.getPropertyValue('--fallback-hue-end')) || 120
+                    }
+                };
+                
+                // Get color variation parameters from CSS
+                const baseSaturation = parseFloat(computedStyle.getPropertyValue('--base-saturation')) || 0.8;
+                const saturationVariation = parseFloat(computedStyle.getPropertyValue('--saturation-variation')) || 0.2;
+                const baseLightness = parseFloat(computedStyle.getPropertyValue('--base-lightness')) || 0.5;
+                const lightnessVariation = parseFloat(computedStyle.getPropertyValue('--lightness-variation')) || 0.15;
+                
+                // Create colors for each category
+                Object.keys(categoryValues).forEach(category => {
+                    const values = Array.from(categoryValues[category]);
+                    if (values.length === 0) return;
+                    
+                    const family = colorFamilies[category];
+                    
+                    values.forEach((value, index) => {
+                        const key = `${category}:${value}`;
+                        
+                        if (values.length === 1) {
+                            // Single value: use middle of hue range with high saturation
+                            const hue = (family.hueStart + family.hueEnd) / 2;
+                            const color = d3.hsl(hue, baseSaturation, 0.6);
+                            valueColorMap.set(key, color.formatHex());
+                        } else {
+                            // Multiple values: distribute across hue range with varying saturation/lightness
+                            const hueRange = family.hueEnd - family.hueStart;
+                            const hue = family.hueStart + (index / (values.length - 1)) * hueRange;
+                            
+                            // Vary saturation and lightness for better distinction using CSS values
+                            const saturation = (baseSaturation - saturationVariation) + (index % 2) * saturationVariation;
+                            const lightness = baseLightness + (index % 3) * lightnessVariation;
+                            
+                            const color = d3.hsl(hue, saturation, lightness);
+                            valueColorMap.set(key, color.formatHex());
+                        }
+                    });
+                });
+            } else {
+                // Single toggle active: use rainbow distribution as before
+                const valueArray = Array.from(allValues);
+                const interp = d3.interpolateRainbow;
+                
+                valueArray.forEach((value, i) => {
+                    valueColorMap.set(value, interp(i / valueArray.length));
+                });
+            }
+            
+            return { nodeColorData, valueColorMap, multipleToggleMode };
+        }
+        
+        // Function to create pie slice paths for multi-value nodes
+        function createPieSlices(colors, radius) {
+            if (colors.length === 1) return null;
+            
+            const anglePerSlice = (2 * Math.PI) / colors.length;
+            const slices = [];
+            
+            colors.forEach((color, i) => {
+                const startAngle = i * anglePerSlice;
+                const endAngle = (i + 1) * anglePerSlice;
+                
+                const x1 = Math.cos(startAngle) * radius;
+                const y1 = Math.sin(startAngle) * radius;
+                const x2 = Math.cos(endAngle) * radius;
+                const y2 = Math.sin(endAngle) * radius;
+                
+                const largeArc = anglePerSlice > Math.PI ? 1 : 0;
+                
+                const pathData = [
+                    `M 0 0`,
+                    `L ${x1} ${y1}`,
+                    `A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`,
+                    `Z`
+                ].join(' ');
+                
+                slices.push({ path: pathData, color });
+            });
+            
+            return slices;
+        }
+
+        // Function to render the D3 DAG visualization
+        function renderVisualization(data, currentState) {
+            // Get current container size
+            const svgContainer = document.querySelector('.svg-container');
+            const containerWidth = svgContainer.clientWidth;
+            const containerHeight = svgContainer.clientHeight || 800; // fallback if height is 0
+    
+            // Get sizing constants from CSS custom properties using helper function
+            const nodeRadius = getCSSValue('--base-node-radius', 'int', 150);
+            const maxNodePercentage = getCSSValue('--max-node-percentage', 'percent', 0.08);
+            const maxNodeAbsolute = getCSSValue('--max-node-absolute', 'int', 80);
+            const minAllowedRadius = getCSSValue('--min-node-radius', 'int', 25);
+            const baseFontSize = getCSSValue('--base-font-size', 'int', 55);
+            const minFontSize = getCSSValue('--min-font-size', 'int', 12);
+            
+            // Calculate maximum allowable node radius based on container width
+            // This ensures nodes never become too large relative to the viewport
+            const maxAllowedRadius = Math.min(containerWidth * maxNodePercentage, maxNodeAbsolute);
+            const clampedNodeRadius = Math.max(Math.min(nodeRadius, maxAllowedRadius), minAllowedRadius);
+            
+            // Calculate font size based on clamped node radius
+            const scaledFontSize = Math.max((clampedNodeRadius / nodeRadius) * baseFontSize, minFontSize);
+            
+            // Get multiple toggle mode info for improved algorithm selection - MOVED EARLY
+            const { nodeColorData, valueColorMap, multipleToggleMode } = createColorMappings(data, currentState);
+            
+            // Now set up the layout sizing variables using CSS values
+            const containerWidthDivisor = getCSSValue('--container-width-divisor', 'float', 2.5);
+            const nodeSpacingY = getCSSValue('--node-spacing-y', 'int', 200);
+            const containerBasedSpacing = containerWidth / containerWidthDivisor;
+            const nodeSpacingX = containerBasedSpacing; // Always use container-based spacing
+
+            const dagData = data.map(event => ({
+                id: event.idNumber.toString(),
+                title: event["Title"],
+                content: event["Content"] || "",
+                area: event["Area"] || "Unknown",
+                branch: event["Branch"] || [],
+                religion: event["Religion"] || "",
+                subbranch: event["Subbranch"] || "",
+                timeStart: event["Time (Beginning)"],
+                timeEnd: event["Time (End)"] || event["Time (Beginning)"],
+                parentIds: event["parentIds"].map(String),
+                connectionReasons: event["connectionReasons"] || new Map() // Include connection reasons
+            }));
+    
+            const dag = d3.graphStratify()
+                .id(d => d.id)
+                .parentIds(d => d.parentIds)
+                (dagData);
+            
+            // Use simpler, more reliable algorithms to avoid timeouts
+            // decrossTwoLayer is faster and more stable than decrossOpt
+            const decrossMethod = d3.decrossTwoLayer();
+            
+            // Use more conservative spacing to help the algorithm converge with CSS values
+            const spacingAdjustmentX = getCSSValue('--layout-spacing-adjustment-x', 'float', 0.9);
+            const spacingAdjustmentY = getCSSValue('--layout-spacing-adjustment-y', 'float', 0.95);
+            const adjustedNodeSpacingX = nodeSpacingX * spacingAdjustmentX;
+            const adjustedNodeSpacingY = nodeSpacingY * spacingAdjustmentY;
+            
+            const layout = d3.sugiyama()
+                .decross(decrossMethod)
+                .nodeSize(() => [adjustedNodeSpacingX, adjustedNodeSpacingY]);
+            
+            // Apply layout to DAG - this modifies the DAG in place and returns { width, height }
+            const { width, height } = layout(dag);
+            
+            // Now access nodes and links from the laid-out DAG
+            let dagNodes = [], dagLinks = [];
+            
+            try {
+                // In d3-dag v1.1.0, nodes() and links() return iterables
+                dagNodes = Array.from(dag.nodes());
+                dagLinks = Array.from(dag.links());
+            } catch (e) {
+                debugError('Error extracting nodes/links:', e);
+            }
+
+            debugLog('DAG processed - nodes:', dagNodes.length, 'links:', dagLinks.length);
+            
+            // Always scale to fill the container width exactly, but with limits
+            const targetWidth = containerWidth;
+            const scaleX = containerWidth / width; // Calculate actual scale needed
+            const maxScaleLimit = getCSSValue('--max-scale-limit', 'float', 1.5);
+            const scale = Math.min(scaleX, maxScaleLimit); // Use CSS value for scale limit
+            const scaledHeight = height * scale;
+
+            // Debug logging (controlled by DEBUG flag)
+            debugLog('Layout debug:', {
+                containerWidth,
+                nodeRadius,
+                maxAllowedRadius,
+                minAllowedRadius,
+                clampedNodeRadius,
+                scaledFontSize,
+                containerBasedSpacing,
+                nodeSpacingX,
+                calculatedWidth: width,
+                targetWidth,
+                scaleX,
+                scale
+            });
+    
+            const svgSelection = d3.select("svg");
+            svgSelection
+                .attr("width", containerWidth)
+                .attr("height", scaledHeight) // Set height to exactly what's needed
+                .attr("viewBox", [0, 0, containerWidth, scaledHeight].join(" "));
+    
+            // Create a group that will be scaled and properly centered
+            // Calculate the scaled width to determine proper centering
+            const scaledWidth = width * scale;
+            const centerOffset = (containerWidth - scaledWidth) / 2;
+            const scaledGroup = svgSelection.append("g")
+                .attr("transform", `translate(${centerOffset}, 0) scale(${scale})`); // Center the scaled DAG
+    
+            const defs = svgSelection.append("defs");
+    
+            // Create a color map for single-color nodes and edge gradients
+            const nodeColorMap = new Map();
+            const nodeMultiColorMap = new Map(); // Store all colors for multi-color nodes
+            nodeColorData.forEach((colors, nodeId) => {
+                if (colors.length === 1) {
+                    nodeColorMap.set(nodeId, valueColorMap.get(colors[0]));
+                } else {
+                    // For multi-color nodes, store all colors and use the first for simple cases
+                    const actualColors = colors.map(colorKey => valueColorMap.get(colorKey));
+                    nodeColorMap.set(nodeId, actualColors[0]); // Fallback to first color
+                    nodeMultiColorMap.set(nodeId, actualColors); // Store all colors
+                }
+            });
+    
+            const line = d3.line().curve(d3.curveCatmullRom).x(d => d.x).y(d => d.y);
+    
+            // Function to get connection colors based on why nodes are connected
+            function getConnectionColors(sourceData, targetData, valueColorMap) {
+                const connectionReasons = targetData.connectionReasons.get(parseInt(sourceData.id));
+                if (!connectionReasons) return [fallbackEdgeColor]; // Fallback if no connection reason found
+                
+                // Get the colors for each connection reason
+                const connectionColors = connectionReasons.map(reason => {
+                    const key = `${reason.category}:${reason.value}`;
+                    return valueColorMap.get(key) || fallbackEdgeColor;
+                });
+                
+                // Remove duplicates
+                return [...new Set(connectionColors)];
+            }
+    
+            // Get edge styling values from CSS
+            const edgeStrokeWidth = getCSSValue(multipleToggleMode ? '--edge-stroke-width-multi' : '--edge-stroke-width', 'int', 3);
+            const fallbackEdgeColor = getCSSValue('--fallback-edge-color', 'string', '#999');
+            const edgeOpacity = getCSSValue(multipleToggleMode ? '--edge-opacity-multi' : '--edge-opacity', 'float', 0.8);
+    
+            // Render edges with error handling
+            try {
+                debugLog('Attempting to render', dagLinks.length, 'edges');
+                const edgeGroup = scaledGroup.append("g").selectAll("path")
+                    .data(dagLinks)
+                    .enter().append("path")
+                    .attr("d", ({ points }) => {
+                        if (!points || !Array.isArray(points) || points.length === 0) {
+                            debugWarn('Link missing points:', { points });
+                            return '';
+                        }
+                        
+                        // Check if points are nested arrays (which seems to be the case)
+                        // Convert [[x,y], [x,y]] to [{x, y}, {x, y}]
+                        let processedPoints;
+                        if (Array.isArray(points[0])) {
+                            processedPoints = points.map(point => ({ x: point[0], y: point[1] }));
+                        } else if (points[0] && typeof points[0] === 'object' && 'x' in points[0]) {
+                            processedPoints = points;
+                        } else {
+                            debugWarn('Unexpected point structure:', points[0]);
+                            return '';
+                        }
+                        
+                        return line(processedPoints);
+                    })
+                    .attr("fill", "none")
+                    .attr("stroke-width", edgeStrokeWidth)
+                    .attr("stroke-opacity", edgeOpacity)
+                    .attr("stroke", ({ source, target }) => {
+                        try {
+                            const gradId = `grad-${source.data.id}-${target.data.id}`;
+                            const grad = defs.append("linearGradient").attr("id", gradId).attr("gradientUnits", "userSpaceOnUse")
+                                .attr("x1", source.x).attr("x2", target.x).attr("y1", source.y).attr("y2", target.y);
+                            
+                            // Get the colors that represent the actual connection between these nodes
+                            const connectionColors = getConnectionColors(source.data, target.data, valueColorMap);
+                            
+                            if (connectionColors.length === 1) {
+                                // Single connection reason - use solid color
+                                grad.append("stop").attr("offset", "0%").attr("stop-color", connectionColors[0]);
+                                grad.append("stop").attr("offset", "100%").attr("stop-color", connectionColors[0]);
+                            } else if (connectionColors.length > 1) {
+                                // Multiple connection reasons - create gradient with all connection colors
+                                connectionColors.forEach((color, i) => {
+                                    const offset = (i / (connectionColors.length - 1)) * 100;
+                                    grad.append("stop")
+                                        .attr("offset", `${offset}%`)
+                                        .attr("stop-color", color);
+                                });
+                            } else {
+                                // Fallback - no connection colors found
+                                grad.append("stop").attr("offset", "0%").attr("stop-color", fallbackEdgeColor);
+                                grad.append("stop").attr("offset", "100%").attr("stop-color", fallbackEdgeColor);
+                            }
+                            
+                            return `url(#${gradId})`;
+                        } catch (e) {
+                            debugError('Error creating edge gradient:', e);
+                            return fallbackEdgeColor; // Use CSS fallback color
+                        }
+                    });
+                debugLog('Rendered edges successfully');
+            } catch (e) {
+                debugError('Error rendering edges:', e);
+            }
+    
+            const nodes = scaledGroup.append("g").selectAll("g")
+                .data(dagNodes)
+                .enter().append("g")
+                .attr("transform", d => `translate(${d.x}, ${d.y})`);
+    
+            // Variable to store the clicked node
+            let selectedNode = null;
+    
+            // Function to update node sizes
+            function updateNodeSizes(nodes, selectedNode, clampedNodeRadius) {
+                nodes.select("circle")
+                    .attr("r", d => (selectedNode && selectedNode.data.id === d.data.id ? clampedNodeRadius * 0.6 : clampedNodeRadius * 0.5));
+                    
+                // For pie slice nodes, we need to handle path elements differently
+                nodes.selectAll("path")
+                    .attr("transform", d => {
+                        const scale = (selectedNode && selectedNode.data.id === d.data.id ? 1.2 : 1.0);
+                        return `scale(${scale})`;
+                    });
+            }
+    
+            // Render nodes with pie slices for multi-value nodes
+            nodeColorData.forEach((colors, nodeId) => {
+                const nodeData = dagNodes.find(d => d.data.id === nodeId);
+                if (!nodeData) return;
+                
+                const nodeGroup = nodes.filter(d => d.data.id === nodeId);
+                const actualColors = colors.map(colorKey => valueColorMap.get(colorKey));
+                
+                if (colors.length === 1) {
+                    // Single color node - use regular circle
+                    nodeGroup.append("circle")
+                        .attr("r", clampedNodeRadius * 0.5)
+                        .attr("fill", actualColors[0]);
+                } else {
+                    // Multi-color node - use pie slices
+                    const slices = createPieSlices(actualColors, clampedNodeRadius * 0.5);
+                    slices.forEach((slice, i) => {
+                        nodeGroup.append("path")
+                            .attr("d", slice.path)
+                            .attr("fill", slice.color)
+                            .attr("class", "pie-slice");
+                    });
+                }
+            });
+    
+            nodes.append("text")
+                .text(d => d.data.title)
+                .attr("font-weight", "bold")
+                .attr("text-anchor", "middle")
+                .attr("alignment-baseline", "middle")
+                .attr("fill", "white")
+                .attr("font-size", scaledFontSize); // Use scaled font size
+    
+            // Update parent buttons function
+            function updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius) {
+                textButtonsDiv.innerHTML = ""; // Clear existing buttons
+    
+                if (selectedNode && selectedNode.data.parentIds.length > 0) {
+                    selectedNode.data.parentIds.forEach(parentId => {
+                        const parentNode = dagData.find(node => node.id === parentId); // Find the parent node
+                        if (parentNode) {
+                            const button = document.createElement("button");
+                            button.textContent = parentNode.title; // Use the title of the parent node
+                            button.classList.add("parent-button"); // Add a class for styling
+    
+                            // Add a click event to the button to set the parent node as the selected node
+                            button.addEventListener("click", () => {
+                                selectedNode = dagNodes.find(node => node.data.id === parentId); // Set parent as selectedNode
+                                updateNodeSizes(nodes, selectedNode, clampedNodeRadius); // Update node sizes to reflect the new selected node
+    
+                                // Update the node content and title display
+                                nodeContent.textContent = selectedNode ? selectedNode.data.content : "None";
+                                const nodeTitle = document.getElementById("node-title");
+                                nodeTitle.textContent = selectedNode ? selectedNode.data.title : "";
+    
+                                // Re-render the parent buttons for the new selected node
+                                updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius);
+    
+                                debugLog(`Parent Node Selected: ${selectedNode.data.title}`);
+                            });
+    
+                            textButtonsDiv.appendChild(button);
+                        }
+                    });
+                }
+            }
+    
+            // Add click event listener to nodes
+            nodes.on("click", function(event, d) {
+                selectedNode = selectedNode && selectedNode.data.id === d.data.id ? null : d; // Toggle selection
+                updateNodeSizes(nodes, selectedNode, clampedNodeRadius); // Update node sizes
+
+                // Update the node content display with only the selectedNode's content
+                const nodeContent = document.getElementById("node-content");
+                const nodeTitle = document.getElementById("node-title");
+                nodeContent.textContent = selectedNode ? selectedNode.data.content : "No node selected";
+                nodeTitle.textContent = selectedNode ? selectedNode.data.title : "";
+
+                // Update the parent buttons
+                const textButtonsDiv = document.getElementById("text-buttons");
+                updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius);
+
+                debugLog("Selected Node:", selectedNode);
+            });
+    
+            // Initial size update
+            updateNodeSizes(nodes, selectedNode, clampedNodeRadius);
+            
+            // Add color legend (position relative to actual DAG content)
+            createColorLegend(svgSelection, valueColorMap, containerWidth, scaledHeight, centerOffset, scaledWidth, multipleToggleMode);
+    
+            return svgSelection;
+        }
+        
+        // Function to create color legend
+        function createColorLegend(svgSelection, valueColorMap, containerWidth, containerHeight, dagCenterOffset, dagWidth, multipleToggleMode) {
+            const legendData = Array.from(valueColorMap.entries()).map(([key, color]) => {
+                // Extract the readable label from the key
+                const [category, value] = key.split(':');
+                return {
+                    key: key,
+                    label: value,
+                    category: category,
+                    color: color
+                };
+            });
+            
+            // Group by category for better organization
+            const groupedLegend = {};
+            legendData.forEach(item => {
+                if (!groupedLegend[item.category]) {
+                    groupedLegend[item.category] = [];
+                }
+                groupedLegend[item.category].push(item);
+            });
+            
+            // Position legend relative to the actual DAG content area
+            const dagRightEdge = dagCenterOffset + dagWidth;
+            const legendWidth = getCSSValue('--legend-width', 'int', 190);
+            const legendX = Math.min(dagRightEdge - 200, containerWidth - legendWidth - 20);
+            
+            // Create legend group positioned relative to DAG content
+            const legendGroup = svgSelection.append("g")
+                .attr("class", "color-legend")
+                .attr("transform", `translate(${legendX}, 20)`);
+            
+            // Add legend background with CSS values
+            const legendPadding = getCSSValue('--legend-padding', 'int', 10);
+            const legendBorderRadius = getCSSValue('--legend-border-radius', 'int', 5);
+            const legendBackground = getCSSValue('--legend-background', 'string', 'rgba(0, 0, 0, 0.8)');
+            const legendBorderColor = getCSSValue('--legend-border-color', 'string', '#444');
+            const legendBorderWidth = getCSSValue('--legend-border-width', 'int', 1);
+            
+            const legendBg = legendGroup.append("rect")
+                .attr("x", -legendPadding)
+                .attr("y", -legendPadding)
+                .attr("rx", legendBorderRadius)
+                .attr("fill", legendBackground)
+                .attr("stroke", legendBorderColor)
+                .attr("stroke-width", legendBorderWidth);
+            
+            let yOffset = 0;
+            
+            // Add legend title with CSS values
+            const legendTitle = multipleToggleMode ? "Categories (Color Families)" : "Color Legend";
+            const legendHeaderFontSize = getCSSValue('--legend-header-font-size', 'int', 14);
+            const legendTextColor = getCSSValue('--legend-text-color', 'string', 'white');
+            
+            legendGroup.append("text")
+                .attr("x", 0)
+                .attr("y", yOffset + 15)
+                .attr("fill", legendTextColor)
+                .attr("font-size", legendHeaderFontSize)
+                .attr("font-weight", "bold")
+                .text(legendTitle);
+            
+            yOffset += 25;
+            
+            // Get category styling values from CSS
+            const categoryBg = getCSSValue('--legend-category-bg', 'string', 'rgba(255, 255, 255, 0.05)');
+            const categoryBorder = getCSSValue('--legend-category-border', 'string', 'rgba(255, 255, 255, 0.1)');
+            const categoryColor = getCSSValue('--legend-category-color', 'string', '#fff');
+            const categoryColorSingle = getCSSValue('--legend-category-color-single', 'string', '#ccc');
+            const categoryFontSize = getCSSValue('--legend-category-font-size', 'int', 13);
+            const categoryFontSizeSingle = getCSSValue('--legend-category-font-size-single', 'int', 12);
+            const itemHeight = getCSSValue('--legend-item-height', 'int', 16);
+            const categorySpacing = getCSSValue('--legend-category-spacing', 'int', 8);
+            const circleRadius = getCSSValue('--legend-circle-radius', 'int', 6);
+            const circleRadiusMulti = getCSSValue('--legend-circle-radius-multi', 'int', 7);
+            const legendFontSize = getCSSValue('--legend-font-size', 'int', 11);
+            
+            // Add entries for each category
+            Object.entries(groupedLegend).forEach(([category, items]) => {
+                if (items.length === 0) return;
+                
+                // Enhanced category header for multiple toggle mode
+                const categoryTitle = category.charAt(0).toUpperCase() + category.slice(1) + ":";
+                const categoryHeaderColor = multipleToggleMode ? categoryColor : categoryColorSingle;
+                const categoryHeaderSize = multipleToggleMode ? categoryFontSize : categoryFontSizeSingle;
+                
+                // Add category background for better visual separation in multiple toggle mode
+                if (multipleToggleMode && items.length > 0) {
+                    const categoryBgRect = legendGroup.append("rect")
+                        .attr("x", -5)
+                        .attr("y", yOffset + 2)
+                        .attr("width", 180)
+                        .attr("height", 16 + items.length * itemHeight + 5)
+                        .attr("fill", categoryBg)
+                        .attr("stroke", categoryBorder)
+                        .attr("stroke-width", 1)
+                        .attr("rx", 3);
+                }
+                
+                // Category header
+                legendGroup.append("text")
+                    .attr("x", 0)
+                    .attr("y", yOffset + 12)
+                    .attr("fill", categoryHeaderColor)
+                    .attr("font-size", categoryHeaderSize)
+                    .attr("font-weight", "bold")
+                    .text(categoryTitle);
+                
+                yOffset += 18;
+                
+                // Category items
+                items.forEach(item => {
+                    // Color circle - larger in multiple toggle mode for better visibility
+                    const currentCircleRadius = multipleToggleMode ? circleRadiusMulti : circleRadius;
+                    const circleStroke = multipleToggleMode ? "rgba(255, 255, 255, 0.3)" : "none";
+                    
+                    legendGroup.append("circle")
+                        .attr("cx", 8)
+                        .attr("cy", yOffset + 8)
+                        .attr("r", currentCircleRadius)
+                        .attr("fill", item.color)
+                        .attr("stroke", circleStroke)
+                        .attr("stroke-width", 1);
+                    
+                    // Label text
+                    legendGroup.append("text")
+                        .attr("x", 22)
+                        .attr("y", yOffset + 12)
+                        .attr("fill", legendTextColor)
+                        .attr("font-size", legendFontSize)
+                        .text(item.label.length > 15 ? item.label.substring(0, 15) + "..." : item.label);
+                    
+                    yOffset += itemHeight;
+                });
+                
+                yOffset += multipleToggleMode ? categorySpacing : 5; // Extra space between categories
+            });
+            
+            // Update background size to fit content
+            legendBg
+                .attr("width", legendWidth)
+                .attr("height", yOffset + legendPadding); // Add padding at bottom
+        }
+    
+        // Main function to initialize and handle toggle changes
+        (async () => {
+            const religionToggle = document.getElementById("religion_toggle");
+            const geographyToggle = document.getElementById("geography_toggle");
+            const branchToggle = document.getElementById("branch_toggle");
+    
+            let currentState = {
+                religion: religionToggle.querySelector("input").checked,
+                geography: geographyToggle.querySelector("input").checked,
+                branch: branchToggle.querySelector("input").checked
+            };
+    
+            const sortedData = await fetchData();
+    
+            function updateVisualization() {
+                const parsedData = parseData(sortedData, currentState);
+                d3.select("svg").selectAll("*").remove(); // Clear existing visualization
+                renderVisualization(parsedData, currentState);
+            }
+    
+            religionToggle.addEventListener("click", function() {
+                currentState.religion = this.querySelector("input").checked;
+                updateVisualization();
+            });
+    
+            geographyToggle.addEventListener("click", function() {
+                currentState.geography = this.querySelector("input").checked;
+                updateVisualization();
+            });
+    
+            branchToggle.addEventListener("click", function() {
+                currentState.branch = this.querySelector("input").checked;
+                updateVisualization();
+            });
+    
+            updateVisualization(); // Initial render
+    
+            // Redraw DAG when svg-container is resized
+            const svgContainer = document.querySelector('.svg-container');
+            let resizeTimeout;
+            const resizeDebounceMs = getCSSValue('--resize-debounce-ms', 'int', 100);
+            const resizeObserver = new ResizeObserver(() => {
+                // Debounce resize events to prevent infinite loops
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    updateVisualization();
+                }, resizeDebounceMs); // Use CSS value for debounce timing
+            });
+            resizeObserver.observe(svgContainer);
+    
+            // Vertical resizer logic
+            const gridContainer = document.querySelector('.grid-container');
+            const resizer = document.getElementById('grid-resizer');
+            let isResizing = false;
+    
+            resizer.addEventListener('mousedown', function(e) {
+                isResizing = true;
+                resizer.classList.add('active');
+                document.body.style.cursor = 'col-resize';
+            });
+    
+            document.addEventListener('mousemove', function(e) {
+                if (!isResizing) return;
+                // Calculate new column widths
+                const containerRect = gridContainer.getBoundingClientRect();
+                const offsetX = e.clientX - containerRect.left;
+                const totalWidth = containerRect.width;
+                // Prevent columns from being too small or too large
+                const min = 0.15, max = 0.85;
+                let leftRatio = offsetX / totalWidth;
+                if (leftRatio < min) leftRatio = min;
+                if (leftRatio > max) leftRatio = max;
+                let rightRatio = 1 - leftRatio;
+                gridContainer.style.gridTemplateColumns = `${leftRatio * 100}% 6px ${rightRatio * 100}%`;
+            });
+    
+            document.addEventListener('mouseup', function() {
+                if (isResizing) {
+                    isResizing = false;
+                    resizer.classList.remove('active');
+                    document.body.style.cursor = '';
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
+
