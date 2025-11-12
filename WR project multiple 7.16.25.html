@@ -232,7 +232,7 @@
             });
             
             // Determine if multiple toggles are active
-            const activeToggles = Object.keys(currentState).filter(key => currentState[key]);
+            const activeToggles = Object.keys(currentState).filter(key => key !== 'chronology' && currentState[key]);
             const multipleToggleMode = activeToggles.length > 1;
             
             const valueColorMap = new Map();
@@ -339,13 +339,39 @@
             return slices;
         }
 
+        // Helper function to wrap text into multiple lines
+        function wrapText(text, maxCharsPerLine) {
+            const words = text.split(/\s+/);
+            const lines = [];
+            let currentLine = '';
+            
+            words.forEach(word => {
+                const testLine = currentLine ? currentLine + ' ' + word : word;
+                
+                if (testLine.length <= maxCharsPerLine) {
+                    currentLine = testLine;
+                } else {
+                    if (currentLine) {
+                        lines.push(currentLine);
+                    }
+                    currentLine = word;
+                }
+            });
+            
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            
+            return lines;
+        }
+
         // Function to render the D3 DAG visualization
         function renderVisualization(data, currentState) {
             // Get current container size
             const svgContainer = document.querySelector('.svg-container');
             const containerWidth = svgContainer.clientWidth;
-            const containerHeight = svgContainer.clientHeight || 800; // fallback if height is 0
-    
+            const containerHeight = svgContainer.clientHeight || 800;
+
             // Get sizing constants from CSS custom properties using helper function
             const nodeRadius = getCSSValue('--base-node-radius', 'int', 150);
             const maxNodePercentage = getCSSValue('--max-node-percentage', 'percent', 0.08);
@@ -353,32 +379,29 @@
             const minAllowedRadius = getCSSValue('--min-node-radius', 'int', 25);
             const baseFontSize = getCSSValue('--base-font-size', 'int', 55);
             const minFontSize = getCSSValue('--min-font-size', 'int', 12);
+            const dagRightMargin = getCSSValue('--dag-right-margin', 'int', 10);
             
-            // Calculate maximum allowable node radius based on container width
-            // This ensures nodes never become too large relative to the viewport
             const maxAllowedRadius = Math.min(containerWidth * maxNodePercentage, maxNodeAbsolute);
             const clampedNodeRadius = Math.max(Math.min(nodeRadius, maxAllowedRadius), minAllowedRadius);
             
-            // Calculate font size based on clamped node radius
             const scaledFontSize = Math.max((clampedNodeRadius / nodeRadius) * baseFontSize, minFontSize);
             
-            // Get multiple toggle mode info for improved algorithm selection - MOVED EARLY
+            // MOVED: Get color mappings BEFORE using them
             const { nodeColorData, valueColorMap, multipleToggleMode } = createColorMappings(data, currentState);
             
-            // Now set up the layout sizing variables using CSS custom properties
             const containerWidthDivisor = getCSSValue('--container-width-divisor', 'float', 2.5);
             const nodeSpacingY = getCSSValue('--node-spacing-y', 'int', 200);
             const containerBasedSpacing = containerWidth / containerWidthDivisor;
-            const nodeSpacingX = containerBasedSpacing; // Always use container-based spacing
+            const nodeSpacingX = containerBasedSpacing;
 
             const dagData = data.map(event => ({
                 id: event.idNumber.toString(),
                 title: event["Title"],
                 content: event["Content"] || "",
                 area: event["Area"] || "Unknown",
-                detailedView: event["Branch"] ? event["Branch"].split(",").map(b => b.trim()) : [], // Parse Branch as array
+                detailedView: event["Branch"] ? event["Branch"].split(",").map(b => b.trim()) : [],
                 religion: event["Religion"] || "",
-                subDetailedView: event["SubBranch"] || "", // Rename for consistency
+                subDetailedView: event["SubBranch"] || "",
                 timeStart: event["Time (Beginning)"],
                 timeEnd: event["Time (End)"] || event["Time (Beginning)"],
                 parentIds: event["parentIds"].map(String),
@@ -390,11 +413,8 @@
                 .parentIds(d => d.parentIds)
                 (dagData);
             
-            // Use simpler, more reliable algorithms to avoid timeouts
-            // decrossTwoLayer is faster and more stable than decrossOpt
             const decrossMethod = d3.decrossTwoLayer();
             
-            // Use more conservative spacing to help the algorithm converge with CSS values
             const spacingAdjustmentX = getCSSValue('--layout-spacing-adjustment-x', 'float', 0.9);
             const spacingAdjustmentY = getCSSValue('--layout-spacing-adjustment-y', 'float', 0.95);
             const adjustedNodeSpacingX = nodeSpacingX * spacingAdjustmentX;
@@ -404,14 +424,11 @@
                 .decross(decrossMethod)
                 .nodeSize(() => [adjustedNodeSpacingX, adjustedNodeSpacingY]);
             
-            // Apply layout to DAG - this modifies the DAG in place and returns { width, height }
             const { width, height } = layout(dag);
             
-            // Now access nodes and links from the laid-out DAG
             let dagNodes = [], dagLinks = [];
             
             try {
-                // In d3-dag v1.1.0, nodes() and links() return iterables
                 dagNodes = Array.from(dag.nodes());
                 dagLinks = Array.from(dag.links());
             } catch (e) {
@@ -420,14 +437,12 @@
 
             debugLog('DAG processed - nodes:', dagNodes.length, 'links:', dagLinks.length);
             
-            // Always scale to fill the container width exactly, but with limits
             const targetWidth = containerWidth;
-            const scaleX = containerWidth / width; // Calculate actual scale needed
+            const scaleX = containerWidth / width;
             const maxScaleLimit = getCSSValue('--max-scale-limit', 'float', 1.5);
-            const scale = Math.min(scaleX, maxScaleLimit); // Use CSS value for scale limit
+            const scale = Math.min(scaleX, maxScaleLimit);
             const scaledHeight = height * scale;
 
-            // Debug logging (controlled by DEBUG flag)
             debugLog('Layout debug:', {
                 containerWidth,
                 nodeRadius,
@@ -442,59 +457,50 @@
                 scaleX,
                 scale
             });
-    
+
             const svgSelection = d3.select("svg");
             svgSelection
                 .attr("width", containerWidth)
-                .attr("height", scaledHeight) // Set height to exactly what's needed
+                .attr("height", scaledHeight)
                 .attr("viewBox", [0, 0, containerWidth, scaledHeight].join(" "));
-    
-            // Create a group that will be scaled and properly centered
-            // Calculate the scaled width to determine proper centering
+
             const scaledWidth = width * scale;
             const centerOffset = (containerWidth - scaledWidth) / 2;
             const scaledGroup = svgSelection.append("g")
-                .attr("transform", `translate(${centerOffset}, 0) scale(${scale})`); // Center the scaled DAG
-    
+                .attr("transform", `translate(${centerOffset - dagRightMargin}, 0) scale(${scale})`);
+
             const defs = svgSelection.append("defs");
-    
-            // Create a color map for single-color nodes and edge gradients
+
             const nodeColorMap = new Map();
-            const nodeMultiColorMap = new Map(); // Store all colors for multi-color nodes
+            const nodeMultiColorMap = new Map();
             nodeColorData.forEach((colors, nodeId) => {
                 if (colors.length === 1) {
                     nodeColorMap.set(nodeId, valueColorMap.get(colors[0]));
                 } else {
-                    // For multi-color nodes, store all colors and use the first for simple cases
                     const actualColors = colors.map(colorKey => valueColorMap.get(colorKey));
-                    nodeColorMap.set(nodeId, actualColors[0]); // Fallback to first color
-                    nodeMultiColorMap.set(nodeId, actualColors); // Store all colors
+                    nodeColorMap.set(nodeId, actualColors[0]);
+                    nodeMultiColorMap.set(nodeId, actualColors);
                 }
             });
-    
+
             const line = d3.line().curve(d3.curveCatmullRom).x(d => d.x).y(d => d.y);
-    
-            // Function to get connection colors based on why nodes are connected
+
             function getConnectionColors(sourceData, targetData, valueColorMap) {
                 const connectionReasons = targetData.connectionReasons.get(parseInt(sourceData.id));
-                if (!connectionReasons) return [fallbackEdgeColor]; // Fallback if no connection reason found
+                if (!connectionReasons) return [fallbackEdgeColor];
                 
-                // Get the colors for each connection reason
                 const connectionColors = connectionReasons.map(reason => {
                     const key = `${reason.category}:${reason.value}`;
                     return valueColorMap.get(key) || fallbackEdgeColor;
                 });
                 
-                // Remove duplicates
                 return [...new Set(connectionColors)];
             }
-    
-            // Get edge styling values from CSS
+
             const edgeStrokeWidth = getCSSValue(multipleToggleMode ? '--edge-stroke-width-multi' : '--edge-stroke-width', 'int', 3);
             const fallbackEdgeColor = getCSSValue('--fallback-edge-color', 'string', '#999');
             const edgeOpacity = getCSSValue(multipleToggleMode ? '--edge-opacity-multi' : '--edge-opacity', 'float', 0.8);
-    
-            // Render edges with error handling
+
             try {
                 debugLog('Attempting to render', dagLinks.length, 'edges');
                 const edgeGroup = scaledGroup.append("g").selectAll("path")
@@ -506,8 +512,6 @@
                             return '';
                         }
                         
-                        // Check if points are nested arrays (which seems to be the case)
-                        // Convert [[x,y], [x,y]] to [{x, y}, {x, y}]
                         let processedPoints;
                         if (Array.isArray(points[0])) {
                             processedPoints = points.map(point => ({ x: point[0], y: point[1] }));
@@ -529,7 +533,6 @@
                             const grad = defs.append("linearGradient").attr("id", gradId).attr("gradientUnits", "userSpaceOnUse")
                                 .attr("x1", source.x).attr("x2", target.x).attr("y1", source.y).attr("y2", target.y);
                             
-                            // Get the colors that represent the actual connection between these nodes
                             const connectionColors = getConnectionColors(source.data, target.data, valueColorMap);
                             
                             if (connectionColors.length === 1) {
@@ -607,13 +610,25 @@
                 }
             });
     
-            nodes.append("text")
-                .text(d => d.data.title)
-                .attr("font-weight", "bold")
-                .attr("text-anchor", "middle")
-                .attr("alignment-baseline", "middle")
-                .attr("fill", "white")
-                .attr("font-size", scaledFontSize); // Use scaled font size
+            nodes.each(function(d) {
+                const nodeGroup = d3.select(this);
+                const lines = wrapText(d.data.title, 20); // Wrap at ~30 characters
+                
+                const lineHeight = scaledFontSize * 0.9; // Line spacing
+                const totalHeight = lines.length * lineHeight;
+                const startY = clampedNodeRadius * 0.8; // Position below the node
+                
+                lines.forEach((line, i) => {
+                    nodeGroup.append("text")
+                        .text(line)
+                        .attr("font-weight", "bold")
+                        .attr("text-anchor", "middle")
+                        .attr("alignment-baseline", "hanging")
+                        .attr("fill", "white")
+                        .attr("font-size", scaledFontSize * 0.8)
+                        .attr("y", startY + (i * lineHeight));
+                });
+            });
     
             // Update parent buttons function
             function updateParentButtons(selectedNode, dagData, textButtonsDiv, nodeContent, nodes, clampedNodeRadius) {
@@ -684,16 +699,15 @@
             // Initial size update
             updateNodeSizes(nodes, selectedNode, clampedNodeRadius);
             
-            // Add color legend (position relative to actual DAG content)
-            createColorLegend(svgSelection, valueColorMap, containerWidth, scaledHeight, centerOffset, scaledWidth, multipleToggleMode);
+            // FIXED: Pass all required parameters including data and nodeColorData
+            createColorLegend(svgSelection, valueColorMap, containerWidth, scaledHeight, centerOffset, scaledWidth, multipleToggleMode, nodeColorData, data, currentState);
     
             return svgSelection;
         }
         
-        // Function to create color legend
-        function createColorLegend(svgSelection, valueColorMap, containerWidth, containerHeight, dagCenterOffset, dagWidth, multipleToggleMode) {
+        // Function to create color legend - UPDATED SIGNATURE
+        function createColorLegend(svgSelection, valueColorMap, containerWidth, containerHeight, dagCenterOffset, dagWidth, multipleToggleMode, nodeColorData, data, currentState) {
             const legendData = Array.from(valueColorMap.entries()).map(([key, color]) => {
-                // Extract the readable label from the key
                 const [category, value] = key.split(':');
                 return {
                     key: key,
@@ -703,7 +717,6 @@
                 };
             });
             
-            // Group by category for better organization
             const groupedLegend = {};
             legendData.forEach(item => {
                 if (!groupedLegend[item.category]) {
@@ -712,18 +725,28 @@
                 groupedLegend[item.category].push(item);
             });
             
-            // Position legend relative to the actual DAG content area
-            const dagRightEdge = dagCenterOffset + dagWidth;
             const legendWidth = getCSSValue('--legend-width', 'int', 190);
-            const legendX = Math.min(dagRightEdge - 200, containerWidth - legendWidth - 20);
+            const legendPadding = getCSSValue('--legend-padding', 'int', 10);
+            const minMargin = 20;
+
+            const dagRightEdge = dagCenterOffset + dagWidth;
+            const availableSpace = containerWidth - dagRightEdge - minMargin;
             
-            // Create legend group positioned relative to DAG content
+            let legendX;
+            if (availableSpace >= legendWidth + minMargin) {
+                legendX = dagRightEdge + minMargin;
+            } else {
+                legendX = containerWidth - legendWidth - minMargin;
+                
+                if (legendX < dagRightEdge) {
+                    legendX = dagCenterOffset + 20;
+                }
+            }
+            
             const legendGroup = svgSelection.append("g")
                 .attr("class", "color-legend")
                 .attr("transform", `translate(${legendX}, 20)`);
             
-            // Add legend background with CSS values
-            const legendPadding = getCSSValue('--legend-padding', 'int', 10);
             const legendBorderRadius = getCSSValue('--legend-border-radius', 'int', 5);
             const legendBackground = getCSSValue('--legend-background', 'string', 'rgba(0, 0, 0, 0.8)');
             const legendBorderColor = getCSSValue('--legend-border-color', 'string', '#444');
@@ -739,7 +762,6 @@
             
             let yOffset = 0;
             
-            // Add legend title with CSS values
             const legendTitle = multipleToggleMode ? "Categories (Color Families)" : "Color Legend";
             const legendHeaderFontSize = getCSSValue('--legend-header-font-size', 'int', 14);
             const legendTextColor = getCSSValue('--legend-text-color', 'string', 'white');
@@ -754,7 +776,6 @@
             
             yOffset += 25;
             
-            // Get category styling values from CSS
             const categoryBg = getCSSValue('--legend-category-bg', 'string', 'rgba(255, 255, 255, 0.05)');
             const categoryBorder = getCSSValue('--legend-category-border', 'string', 'rgba(255, 255, 255, 0.1)');
             const categoryColor = getCSSValue('--legend-category-color', 'string', '#fff');
@@ -767,16 +788,73 @@
             const circleRadiusMulti = getCSSValue('--legend-circle-radius-multi', 'int', 7);
             const legendFontSize = getCSSValue('--legend-font-size', 'int', 11);
             
-            // Add entries for each category
+            // Track currently highlighted filter
+            let currentFilter = null;
+            
+            // FIXED: Function now uses passed nodeColorData parameter
+            function highlightCategory(categoryKey) {
+                svgSelection.selectAll("g g circle, g g path.pie-slice")
+                    .attr("stroke", function(d) {
+                        return d3.select(this).classed("pie-slice") ? "#333" : "none";
+                    })
+                    .attr("stroke-width", function(d) {
+                        return d3.select(this).classed("pie-slice") ? 1 : 0;
+                    })
+                    .attr("opacity", 1);
+                
+                svgSelection.selectAll("g > g > path")
+                    .attr("stroke-width", getCSSValue(multipleToggleMode ? '--edge-stroke-width-multi' : '--edge-stroke-width', 'int', 3))
+                    .attr("opacity", getCSSValue(multipleToggleMode ? '--edge-opacity-multi' : '--edge-opacity', 'float', 0.8));
+                
+                if (categoryKey === null) {
+                    currentFilter = null;
+                    return;
+                }
+                
+                currentFilter = categoryKey;
+                
+                svgSelection.selectAll("g g circle, g g path.pie-slice")
+                    .attr("opacity", 0.2);
+                
+                svgSelection.selectAll("g > g > path")
+                    .attr("opacity", 0.1);
+                
+                svgSelection.selectAll("g g").each(function(d) {
+                    if (!d || !d.data) return;
+                    
+                    const nodeGroup = d3.select(this);
+                    const nodeColors = nodeColorData.get(d.data.id);
+                    
+                    if (nodeColors && nodeColors.includes(categoryKey)) {
+                        nodeGroup.selectAll("circle, path.pie-slice")
+                            .attr("stroke", "#FFD700")
+                            .attr("stroke-width", 4)
+                            .attr("opacity", 1);
+                    }
+                });
+                
+                svgSelection.selectAll("g > g > path").each(function(d) {
+                    if (!d || !d.source || !d.target) return;
+                    
+                    const sourceColors = nodeColorData.get(d.source.data.id);
+                    const targetColors = nodeColorData.get(d.target.data.id);
+                    
+                    if ((sourceColors && sourceColors.includes(categoryKey)) || 
+                        (targetColors && targetColors.includes(categoryKey))) {
+                        d3.select(this)
+                            .attr("stroke-width", getCSSValue(multipleToggleMode ? '--edge-stroke-width-multi' : '--edge-stroke-width', 'int', 3) * 1.5)
+                            .attr("opacity", 1);
+                    }
+                });
+            }
+            
             Object.entries(groupedLegend).forEach(([category, items]) => {
                 if (items.length === 0) return;
                 
-                // Enhanced category header for multiple toggle mode
                 const categoryTitle = category.charAt(0).toUpperCase() + category.slice(1) + ":";
                 const categoryHeaderColor = multipleToggleMode ? categoryColor : categoryColorSingle;
                 const categoryHeaderSize = multipleToggleMode ? categoryFontSize : categoryFontSizeSingle;
                 
-                // Add category background for better visual separation in multiple toggle mode
                 if (multipleToggleMode && items.length > 0) {
                     const categoryBgRect = legendGroup.append("rect")
                         .attr("x", -5)
@@ -789,7 +867,6 @@
                         .attr("rx", 3);
                 }
                 
-                // Category header
                 legendGroup.append("text")
                     .attr("x", 0)
                     .attr("y", yOffset + 12)
@@ -800,13 +877,23 @@
                 
                 yOffset += 18;
                 
-                // Category items
                 items.forEach(item => {
-                    // Color circle - larger in multiple toggle mode for better visibility
                     const currentCircleRadius = multipleToggleMode ? circleRadiusMulti : circleRadius;
                     const circleStroke = multipleToggleMode ? "rgba(255, 255, 255, 0.3)" : "none";
                     
-                    legendGroup.append("circle")
+                    const itemGroup = legendGroup.append("g")
+                        .attr("class", "legend-item")
+                        .style("cursor", "pointer")
+                        .style("pointer-events", "all");
+                    
+                    itemGroup.append("rect")
+                        .attr("x", 0)
+                        .attr("y", yOffset)
+                        .attr("width", legendWidth - legendPadding * 2)
+                        .attr("height", itemHeight)
+                        .attr("fill", "transparent");
+                    
+                    itemGroup.append("circle")
                         .attr("cx", 8)
                         .attr("cy", yOffset + 8)
                         .attr("r", currentCircleRadius)
@@ -814,24 +901,38 @@
                         .attr("stroke", circleStroke)
                         .attr("stroke-width", 1);
                     
-                    // Label text
-                    legendGroup.append("text")
+                    itemGroup.append("text")
                         .attr("x", 22)
                         .attr("y", yOffset + 12)
                         .attr("fill", legendTextColor)
                         .attr("font-size", legendFontSize)
                         .text(item.label.length > 15 ? item.label.substring(0, 15) + "..." : item.label);
                     
+                    itemGroup.on("click", function() {
+                        if (currentFilter === item.key) {
+                            highlightCategory(null);
+                            itemGroup.select("rect")
+                                .attr("fill", "transparent");
+                        } else {
+                            highlightCategory(item.key);
+                            
+                            legendGroup.selectAll(".legend-item rect")
+                                .attr("fill", "transparent");
+                            
+                            itemGroup.select("rect")
+                                .attr("fill", "rgba(255, 215, 0, 0.2)");
+                        }
+                    });
+                    
                     yOffset += itemHeight;
                 });
                 
-                yOffset += multipleToggleMode ? categorySpacing : 5; // Extra space between categories
+                yOffset += multipleToggleMode ? categorySpacing : 5;
             });
             
-            // Update background size to fit content
             legendBg
                 .attr("width", legendWidth)
-                .attr("height", yOffset + legendPadding); // Add padding at bottom
+                .attr("height", yOffset + legendPadding);
         }
     
         // Main function to initialize and handle toggle changes

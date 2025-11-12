@@ -41,6 +41,7 @@ body {
     --layout-spacing-adjustment-x: 0.9;
     --layout-spacing-adjustment-y: 0.95;
     --max-scale-limit: 1.5;
+    --dag-right-margin: 20px;
     
     /* Edge and stroke parameters */
     --edge-stroke-width: 3;
@@ -293,11 +294,21 @@ header, footer {
 /* Color legend styling */
 .color-legend {
     pointer-events: none; /* Prevent legend from interfering with interactions */
+    z-index: 1000;
 }
 
 .color-legend text {
     font-family: 'Lora', serif;
     user-select: none;
+}
+
+/* Add text shadow for better readability */
+svg text {
+    text-shadow: 
+        -1px -1px 0 #000,
+        1px -1px 0 #000,
+        -1px 1px 0 #000,
+        1px 1px 0 #000;
 }
 
 .connection-reason {
