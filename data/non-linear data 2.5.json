@@ -223,7 +223,7 @@
         "Title": "Vedic Culture",
         "Content": "      The regions of present-day Nepal and North India at the time of the birth of Siddharta Gautama followed a version of what we now term Vedic culture. Within this culture, notions of karma (actions generate results in this life and the next) and reincarnation of the individual soul were prominent. One's birth determined one's position in society (an early form of what later came to be called the caste system), and that birth reflected the proper and improper actions in previous births. These were some of the ideas circulating in the society in which Siddharta lived, and much of his thought is a reaction to them, adopting some elements, revising or rejecting others.\n      Two dominant groups were important in Vedic culture, priests, known as Brahmins, and rulers / warriors. These two groups were largely codependent, as the priests provided legitimacy for the rulers and conducted rituals that maintained their power (and in some understandings the continuation of the universe). The rulers and warriors patronized the priests. Some people, however, chose to reject the system and took vows of asceticism, wandering in the forest and performing extreme austerities that some understood to be a source of great physical or spiritual power, like the small group of renunciants that Siddharta joined and led for a time. These renunciants and some philosophers moved away from the strict adherence to ritualized activities to ponder the nature of the universe and to look for release from continued rebirth.\n      Scholars commonly date the oldest Vedic texts that include the hymns praising particular deities to about 1500 BCE, with slightly more recent texts detailing the ritualized activities that were to accompany the recitation of the hymns. The earliest Upanishads, which reflect the philosophical development of the Vedic ideas date from around 800 BCE. The later Upanishads stretch well into the first millennium CE, and perhaps some are more recent. These various texts, however, do not necessarily reveal the ways these ideas were implemented in practice but the idealized version only.",
         "Area": "India",
-        "Religion": "Hinduism, Pre-Buddha",
+        "Religion": "Hinduism",
         "Branch": "Vedic",
         "Subbranch": "",
         "Time (Beginning)": "-1000",
@@ -499,4 +499,5 @@
         "Time (Beginning)": "-680",
         "Time (End)": ""
     }
+
 ]
